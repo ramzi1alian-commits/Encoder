@@ -1,0 +1,16 @@
+<resources>
+    <!--
+        This is the app's ORIGINAL dark palette, moved here unchanged so it
+        applies specifically to night mode. Before this fix there was no
+        values-night/ directory at all, so "day mode" and "night mode" were
+        visually identical - the toggle changed an internal flag but no
+        resource ever actually switched.
+    -->
+    <color name="navy_950">#0B1120</color>
+    <color name="navy_900">#111827</color>
+    <color name="navy_800">#1E293B</color>
+    <color name="navy_700">#334155</color>
+    <color name="slate_400">#94A3B8</color>
+    <color name="slate_200">#E2E8F0</color>
+    <color name="white">#FFFFFF</color>
+</resources>

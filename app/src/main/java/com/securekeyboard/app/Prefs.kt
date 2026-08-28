@@ -54,11 +54,27 @@ object Prefs {
 }
 
 object Fonts {
+    /**
+     * IMPORTANT (fixed after a real bug report): this used to return the raw
+     * generic families Typeface.SERIF / Typeface.MONOSPACE for the "classic"
+     * and "mono" choices. On many ROMs (MIUI/Xiaomi in particular) those
+     * generic families have NO Arabic glyph coverage at all, so Arabic text
+     * silently fell back to tofu boxes or unrelated glyphs from a fallback
+     * font - this is exactly what showed up as "symbols instead of letters"
+     * on the keyboard.
+     *
+     * Typeface.DEFAULT (and its bold variant) is backed by the system's
+     * default font family, which always includes a proper Arabic fallback
+     * chain on stock Android and every major OEM skin. So instead of
+     * swapping the font family for "classic"/"mono", we keep the same
+     * Arabic-safe family and only vary the style, which gives visual
+     * differentiation without ever risking broken Arabic rendering.
+     */
     fun currentTypeface(context: Context): Typeface {
         return when (Prefs.fontChoice(context)) {
-            1 -> Typeface.SERIF
-            2 -> Typeface.MONOSPACE
-            else -> Typeface.SANS_SERIF
+            1 -> Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            2 -> Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+            else -> Typeface.DEFAULT
         }
     }
 
@@ -71,6 +87,74 @@ object Fonts {
             for (i in 0 until view.childCount) {
                 applyToTree(view.getChildAt(i), typeface)
             }
+        }
+    }
+}
+
+/**
+ * Centralizes accent-color application so every screen (including the
+ * theme-picker screen itself) actually reflects the chosen accent, instead
+ * of each Activity manually tinting one or two buttons and forgetting the
+ * rest - which was the root cause of "the theme doesn't apply" bug reports.
+ */
+object ThemeUtil {
+
+    fun accentColor(context: Context): Int =
+        androidx.core.content.ContextCompat.getColor(context, Prefs.accentColorRes(context))
+
+    /** Tints a filled ("primary") button's background with the current accent. */
+    fun tintPrimary(context: Context, vararg buttons: com.google.android.material.button.MaterialButton) {
+        val tint = android.content.res.ColorStateList.valueOf(accentColor(context))
+        buttons.forEach { it.backgroundTintList = tint }
+    }
+
+    /** Colors an outline ("secondary") button's stroke with the current accent. */
+    fun tintOutline(context: Context, vararg buttons: com.google.android.material.button.MaterialButton) {
+        val color = accentColor(context)
+        buttons.forEach {
+            it.strokeColor = android.content.res.ColorStateList.valueOf(color)
+            it.setTextColor(color)
+        }
+    }
+
+    /**
+     * Draws a colored selection border around a plain swatch card (a
+     * LinearLayout, not a Material widget) so the user can see which
+     * accent color is active - this was missing entirely before, which
+     * made color choices look like they weren't being saved.
+     */
+    fun setSelected(view: android.view.View, selected: Boolean, accent: Int) {
+        val bg = android.graphics.drawable.GradientDrawable()
+        bg.cornerRadius = 10f * view.resources.displayMetrics.density
+        bg.setColor(androidx.core.content.ContextCompat.getColor(view.context, R.color.navy_800))
+        val strokeWidthDp = if (selected) 2f else 1f
+        val strokeColor = if (selected) accent else androidx.core.content.ContextCompat.getColor(view.context, R.color.navy_700)
+        bg.setStroke((strokeWidthDp * view.resources.displayMetrics.density).toInt(), strokeColor)
+        view.background = bg
+    }
+
+    /**
+     * Same idea but for a MaterialButton (mode/font/density buttons) -
+     * uses MaterialButton's own stroke properties instead of replacing its
+     * background drawable outright, so we don't fight its built-in ripple
+     * and corner-radius handling.
+     */
+    fun setSelected(
+        button: com.google.android.material.button.MaterialButton,
+        selected: Boolean,
+        accent: Int
+    ) {
+        val context = button.context
+        if (selected) {
+            button.strokeWidth = (2 * context.resources.displayMetrics.density).toInt()
+            button.strokeColor = android.content.res.ColorStateList.valueOf(accent)
+            button.setTextColor(accent)
+        } else {
+            button.strokeWidth = (1 * context.resources.displayMetrics.density).toInt()
+            button.strokeColor = android.content.res.ColorStateList.valueOf(
+                androidx.core.content.ContextCompat.getColor(context, R.color.navy_700)
+            )
+            button.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.slate_200))
         }
     }
 }

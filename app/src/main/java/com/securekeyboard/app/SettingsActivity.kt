@@ -37,12 +37,28 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, ThemeSettingsActivity::class.java))
         }
 
-        val accent = resources.getColor(Prefs.accentColorRes(this), theme)
-        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnEnable).backgroundTintList =
-            android.content.res.ColorStateList.valueOf(accent)
-        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnEncrypt).backgroundTintList =
-            android.content.res.ColorStateList.valueOf(accent)
+        applyCurrentTheme()
+    }
 
+    override fun onResume() {
+        super.onResume()
+        // Re-apply (without a full recreate, to avoid a recreate/onResume
+        // loop) in case the user changed the accent/font on the theme
+        // screen and came back here - onCreate alone would miss that.
+        applyCurrentTheme()
+    }
+
+    private fun applyCurrentTheme() {
+        ThemeUtil.tintPrimary(
+            this,
+            findViewById(R.id.btnEnable),
+            findViewById(R.id.btnEncrypt)
+        )
+        ThemeUtil.tintOutline(
+            this,
+            findViewById(R.id.btnSwitch),
+            findViewById(R.id.btnThemeSettings)
+        )
         Fonts.applyToTree(findViewById(android.R.id.content), Fonts.currentTypeface(this))
     }
 }

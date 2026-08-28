@@ -15,7 +15,7 @@
 
     <style name="PrimaryButton" parent="Widget.MaterialComponents.Button">
         <item name="backgroundTint">@color/accent_cyan</item>
-        <item name="android:textColor">@color/navy_950</item>
+        <item name="android:textColor">@color/text_on_accent</item>
         <item name="android:textAllCaps">false</item>
         <item name="android:textSize">15sp</item>
         <item name="cornerRadius">12dp</item>

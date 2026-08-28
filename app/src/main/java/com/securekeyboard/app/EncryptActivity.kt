@@ -28,7 +28,12 @@ class EncryptActivity : AppCompatActivity() {
 
     private val ivLength = 12
     private val saltLength = 16
-    private val iterations = 150000
+
+    // Raised from 150,000 to the current OWASP-recommended minimum for
+    // PBKDF2-HMAC-SHA256 (600,000 as of the 2023+ Password Storage Cheat
+    // Sheet). 150k let a single consumer GPU brute-force weak/medium
+    // passwords far too quickly.
+    private val iterations = 600000
 
     private lateinit var inputText: EditText
     private lateinit var inputKey: EditText
@@ -79,9 +84,8 @@ class EncryptActivity : AppCompatActivity() {
         }
 
         Fonts.applyToTree(findViewById(android.R.id.content), Fonts.currentTypeface(this))
-        val accent = resources.getColor(Prefs.accentColorRes(this), theme)
-        findViewById<MaterialButton>(R.id.btnEncryptAction).backgroundTintList =
-            android.content.res.ColorStateList.valueOf(accent)
+        ThemeUtil.tintPrimary(this, findViewById(R.id.btnEncryptAction))
+        ThemeUtil.tintOutline(this, findViewById(R.id.btnDecryptAction))
     }
 
     private fun showError(msg: String) {
@@ -99,22 +103,40 @@ class EncryptActivity : AppCompatActivity() {
         resultCard.visibility = View.VISIBLE
     }
 
-    private fun deriveKey(pass: String, salt: ByteArray): SecretKeySpec {
+    /**
+     * Derives the AES key AND zeroes out the password/key material as soon
+     * as it's no longer needed, instead of leaving char[]/byte[] copies of
+     * the password and key sitting in the heap until GC gets to them. This
+     * matters because on a compromised or rooted device, a memory dump can
+     * otherwise recover the password/key long after this function returns.
+     */
+    private fun deriveKey(pass: String, salt: ByteArray): ByteArray {
         val factory = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-        val spec = PBEKeySpec(pass.toCharArray(), salt, iterations, 256)
-        val keyBytes = factory.generateSecret(spec).encoded
-        return SecretKeySpec(keyBytes, "AES")
+        val passChars = pass.toCharArray()
+        val spec = PBEKeySpec(passChars, salt, iterations, 256)
+        try {
+            val keyBytes = factory.generateSecret(spec).encoded
+            return keyBytes
+        } finally {
+            spec.clearPassword()
+            java.util.Arrays.fill(passChars, '\u0000')
+        }
     }
 
     private fun encrypt(text: String, pass: String): String {
         val salt = ByteArray(saltLength).also { SecureRandom().nextBytes(it) }
         val iv = ByteArray(ivLength).also { SecureRandom().nextBytes(it) }
-        val key = deriveKey(pass, salt)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
-        val cipherBytes = cipher.doFinal(text.toByteArray(Charsets.UTF_8))
-        val combined = salt + iv + cipherBytes
-        return Base64.encodeToString(combined, Base64.NO_WRAP)
+        val keyBytes = deriveKey(pass, salt)
+        try {
+            val key = SecretKeySpec(keyBytes, "AES")
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
+            val cipherBytes = cipher.doFinal(text.toByteArray(Charsets.UTF_8))
+            val combined = salt + iv + cipherBytes
+            return Base64.encodeToString(combined, Base64.NO_WRAP)
+        } finally {
+            java.util.Arrays.fill(keyBytes, 0)
+        }
     }
 
     private fun decrypt(b64: String, pass: String): String {
@@ -122,9 +144,23 @@ class EncryptActivity : AppCompatActivity() {
         val salt = combined.copyOfRange(0, saltLength)
         val iv = combined.copyOfRange(saltLength, saltLength + ivLength)
         val cipherBytes = combined.copyOfRange(saltLength + ivLength, combined.size)
-        val key = deriveKey(pass, salt)
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
-        return String(cipher.doFinal(cipherBytes), Charsets.UTF_8)
+        val keyBytes = deriveKey(pass, salt)
+        try {
+            val key = SecretKeySpec(keyBytes, "AES")
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
+            return String(cipher.doFinal(cipherBytes), Charsets.UTF_8)
+        } finally {
+            java.util.Arrays.fill(keyBytes, 0)
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Best-effort: don't leave typed plaintext/password/result sitting
+        // in the views once the screen goes away.
+        inputText.text?.clear()
+        inputKey.text?.clear()
+        resultText.text = ""
     }
 }

@@ -1,11 +1,24 @@
 <resources>
-    <color name="navy_950">#0B1120</color>
-    <color name="navy_900">#111827</color>
-    <color name="navy_800">#1E293B</color>
-    <color name="navy_700">#334155</color>
-    <color name="slate_400">#94A3B8</color>
-    <color name="slate_200">#E2E8F0</color>
-    <color name="white">#FFFFFF</color>
+    <!--
+        These are the DAY (light-mode) values for the same color names used
+        throughout the app's layouts/styles. android:theme is DayNight, so
+        Android automatically swaps these for the values-night/colors.xml
+        set when the user picks night mode - that's what actually makes the
+        day/night toggle produce two different-looking screens instead of
+        one dark screen no matter what's selected.
+
+        The names (navy_950, slate_200, "white", ...) describe their role
+        in the ORIGINAL dark theme; here in the light variant the same
+        names are reused for the equivalent role (e.g. "white" = main
+        title text color) even though the literal hex is no longer white.
+    -->
+    <color name="navy_950">#F1F5F9</color>
+    <color name="navy_900">#FFFFFF</color>
+    <color name="navy_800">#E2E8F0</color>
+    <color name="navy_700">#CBD5E1</color>
+    <color name="slate_400">#64748B</color>
+    <color name="slate_200">#1E293B</color>
+    <color name="white">#0F172A</color>
 
     <color name="accent_cyan">#22D3EE</color>
     <color name="accent_cyan_dark">#0891B2</color>
@@ -14,6 +27,16 @@
     <color name="accent_teal">#2DD4BF</color>
     <color name="accent_gold">#FBBF24</color>
     <color name="accent_purple">#A78BFA</color>
+
+    <!--
+        Fixed (NOT overridden in values-night) dark color for text that
+        sits on top of a bright accent-colored button background. Button
+        fills are always the bright accent color in both day and night
+        mode, so the text on them must always stay dark - it must NOT
+        follow navy_950's day/night flip, or day mode would render
+        near-invisible light text on a bright cyan/gold/etc button.
+    -->
+    <color name="text_on_accent">#0B1120</color>
 
     <color name="navy_50_light">#F1F5F9</color>
     <color name="white_card">#FFFFFF</color>
