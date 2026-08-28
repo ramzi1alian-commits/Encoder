@@ -115,5 +115,13 @@
                 android:text="@string/open_encrypt_tool" />
         </LinearLayout>
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnThemeSettings"
+            style="@style/SecondaryButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="16dp"
+            android:text="@string/open_theme_settings" />
+
     </LinearLayout>
 </ScrollView>

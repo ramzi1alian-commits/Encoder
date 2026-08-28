@@ -32,5 +32,17 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<android.view.View>(R.id.btnEncrypt).setOnClickListener {
             startActivity(Intent(this, EncryptActivity::class.java))
         }
+
+        findViewById<android.view.View>(R.id.btnThemeSettings).setOnClickListener {
+            startActivity(Intent(this, ThemeSettingsActivity::class.java))
+        }
+
+        val accent = resources.getColor(Prefs.accentColorRes(this), theme)
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnEnable).backgroundTintList =
+            android.content.res.ColorStateList.valueOf(accent)
+        findViewById<com.google.android.material.button.MaterialButton>(R.id.btnEncrypt).backgroundTintList =
+            android.content.res.ColorStateList.valueOf(accent)
+
+        Fonts.applyToTree(findViewById(android.R.id.content), Fonts.currentTypeface(this))
     }
 }

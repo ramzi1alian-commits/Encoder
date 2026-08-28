@@ -11,6 +11,13 @@
     <color name="accent_cyan_dark">#0891B2</color>
     <color name="danger_red">#F87171</color>
 
+    <color name="accent_teal">#2DD4BF</color>
+    <color name="accent_gold">#FBBF24</color>
+    <color name="accent_purple">#A78BFA</color>
+
+    <color name="navy_50_light">#F1F5F9</color>
+    <color name="white_card">#FFFFFF</color>
+
     <color name="colorPrimary">@color/navy_900</color>
     <color name="colorPrimaryDark">@color/navy_950</color>
     <color name="colorAccent">@color/accent_cyan</color>

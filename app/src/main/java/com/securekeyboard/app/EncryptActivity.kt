@@ -77,6 +77,11 @@ class EncryptActivity : AppCompatActivity() {
                 showError(getString(R.string.err_bad_key))
             }
         }
+
+        Fonts.applyToTree(findViewById(android.R.id.content), Fonts.currentTypeface(this))
+        val accent = resources.getColor(Prefs.accentColorRes(this), theme)
+        findViewById<MaterialButton>(R.id.btnEncryptAction).backgroundTintList =
+            android.content.res.ColorStateList.valueOf(accent)
     }
 
     private fun showError(msg: String) {

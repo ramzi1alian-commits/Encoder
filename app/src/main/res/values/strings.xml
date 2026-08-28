@@ -26,4 +26,23 @@
     <string name="err_no_key">اكتب مفتاح أولا</string>
     <string name="err_bad_key">المفتاح غلط أو النص غير سليم</string>
     <string name="err_generic">حصل خطأ أثناء التشفير</string>
+
+    <string name="settings_title">الإعدادات والمظهر</string>
+    <string name="theme_color_label">لون الهوية البصرية</string>
+    <string name="color_cyan">سماوي</string>
+    <string name="color_teal">أخضر مزرق</string>
+    <string name="color_gold">ذهبي</string>
+    <string name="color_purple">بنفسجي</string>
+    <string name="display_mode_label">وضع العرض</string>
+    <string name="mode_day">نهاري</string>
+    <string name="mode_night">ليلي</string>
+    <string name="font_label">الخط</string>
+    <string name="font_sans">افتراضي</string>
+    <string name="font_serif">كلاسيكي</string>
+    <string name="font_mono">مسطر</string>
+    <string name="density_label">كثافة العرض</string>
+    <string name="density_compact">مضغوط</string>
+    <string name="density_comfortable">مريح</string>
+    <string name="settings_note">التغييرات بتتطبق على شاشات التطبيق وعلى الكيبورد. كل الإعدادات محفوظة محليا على جهازك فقط.</string>
+    <string name="open_theme_settings">الإعدادات والمظهر</string>
 </resources>

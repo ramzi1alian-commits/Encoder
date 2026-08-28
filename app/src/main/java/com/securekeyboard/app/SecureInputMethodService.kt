@@ -1,5 +1,6 @@
 package com.securekeyboard.app
 
+import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
 import android.view.View
 import android.view.WindowManager
@@ -85,6 +86,8 @@ class SecureInputMethodService : InputMethodService() {
         }
         bottomRow.addView(makeKey("مسافة", weight = 4f) {
             currentInputConnection?.commitText(" ", 1)
+        }.apply {
+            setTextColor(resources.getColor(Prefs.accentColorRes(this@SecureInputMethodService), theme))
         })
         bottomRow.addView(makeKey("حذف", weight = 1.5f) {
             currentInputConnection?.deleteSurroundingText(1, 0)
@@ -103,6 +106,8 @@ class SecureInputMethodService : InputMethodService() {
         return Button(this).apply {
             text = label
             textSize = 16f
+            isAllCaps = false
+            typeface = Typeface.create(Fonts.currentTypeface(this@SecureInputMethodService), Typeface.NORMAL)
             setTextColor(resources.getColor(R.color.slate_200, theme))
             background = resources.getDrawable(R.drawable.bg_key, theme)
             val lp = LinearLayout.LayoutParams(0, 130, weight)
