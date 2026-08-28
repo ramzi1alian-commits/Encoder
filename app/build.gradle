@@ -1,0 +1,41 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+}
+
+android {
+    namespace 'com.securekeyboard.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.securekeyboard.app"
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
+}
+
+dependencies {
+    implementation 'androidx.core:core-ktx:1.12.0'
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    // Intentionally NO networking libraries (no OkHttp, Retrofit, etc).
+    // This app never requests android.permission.INTERNET in the manifest,
+    // so the OS itself blocks any network access at install time -
+    // no code-level promise is needed, it's enforced by the platform.
+}

@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Secure Keyboard</string>
+    <string name="keyboard_name">Secure Keyboard</string>
+    <string name="setup_explainer">هذا الكيبورد لا يملك صلاحية الوصول للإنترنت إطلاقا، ولا يخزن أو يسجل أي شيء تكتبه، ويمنع لقطات الشاشة أثناء استخدامه. لتفعيله: اضغط "تفعيل الكيبورد" ثم فعّله من القائمة، بعدها اضغط "تبديل الكيبورد" لاختياره.</string>
+    <string name="enable_keyboard">تفعيل الكيبورد من الإعدادات</string>
+    <string name="switch_keyboard">تبديل الكيبورد الحالي</string>
+</resources>
