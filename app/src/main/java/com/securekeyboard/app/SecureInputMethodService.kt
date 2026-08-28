@@ -51,15 +51,24 @@ class SecureInputMethodService : InputMethodService() {
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(0xFF1C1C1E.toInt())
-            setPadding(8, 8, 8, 8)
+            setBackgroundColor(resources.getColor(R.color.navy_950, theme))
+            setPadding(6, 10, 6, 10)
         }
 
         val rows = listOf(
-            "ض ص ث ق ف غ ع ه خ ح ج",
-            "ش س ي ب ل ا ت ن م ك ط",
+            "ض ص ث ق ف غ ع ه خ ح ج د",
+            "ش س ي ب ل ا ت ن م ك ط ذ",
             "ئ ء ؤ ر لا ى ة و ز ظ"
         )
+
+        val numberRow = "1 2 3 4 5 6 7 8 9 0".split(" ")
+        val numberLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        for (n in numberRow) {
+            numberLayout.addView(makeKey(n))
+        }
+        root.addView(numberLayout)
 
         for (row in rows) {
             val rowLayout = LinearLayout(this).apply {
@@ -94,7 +103,11 @@ class SecureInputMethodService : InputMethodService() {
         return Button(this).apply {
             text = label
             textSize = 16f
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, weight)
+            setTextColor(resources.getColor(R.color.slate_200, theme))
+            background = resources.getDrawable(R.drawable.bg_key, theme)
+            val lp = LinearLayout.LayoutParams(0, 130, weight)
+            lp.setMargins(4, 4, 4, 4)
+            layoutParams = lp
             setOnClickListener {
                 // Text goes directly to the focused field. Nothing here
                 // is retained, logged, or queued anywhere else.

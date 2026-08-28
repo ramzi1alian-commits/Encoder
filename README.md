@@ -42,7 +42,24 @@
 2. فعّل "Secure Keyboard" من قائمة لوحات المفاتيح
 3. ارجع للتطبيق ودوس "تبديل الكيبورد الحالي" واختاره
 
-## الهيكل
+## ملاحظة مهمة قبل استخدام GitHub Actions
+
+ملف `.github/workflows/build.yml` بيستخدم أمر `./gradlew` عشان يبني الـ APK
+تلقائيًا على GitHub. الملف ده (`gradlew` + `gradlew.bat` + ملف jar الخاص
+بيه) مش موجود في هذا الزيب لأنه بيتولد تلقائيًا. **قبل ما ترفع المشروع
+على GitHub**، افتحه مرة واحدة في Android Studio (أو شغّل الأمر
+`gradle wrapper` من التيرمينال لو عندك Gradle مثبت) — هيتولد الملف
+تلقائيًا، وبعدين ارفعه مع باقي الكود.
+
+## إزاي تستخدم GitHub Actions
+
+1. ارفع المشروع (repository) على GitHub بما فيه مجلد `.github/workflows/`
+2. روح تبويب **Actions** في صفحة الـ repo، هتلاقي الـ workflow بيشتغل
+   تلقائيًا مع كل رفع كود جديد على فرع `main`
+3. بعد ما يخلص (حوالي 2-3 دقايق)، افتح الـ run، وهتلاقي **Artifacts**
+   في الأسفل فيها ملف `secure-keyboard-debug-apk` — نزّله وثبّته على
+   موبايلك مباشرة
+
 
 ```
 app/src/main/java/com/securekeyboard/app/

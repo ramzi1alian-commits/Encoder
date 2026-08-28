@@ -5,9 +5,6 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 
 class SettingsActivity : AppCompatActivity() {
@@ -21,37 +18,19 @@ class SettingsActivity : AppCompatActivity() {
             WindowManager.LayoutParams.FLAG_SECURE
         )
 
-        val layout = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(48, 96, 48, 48)
+        setContentView(R.layout.activity_settings)
+
+        findViewById<android.view.View>(R.id.btnEnable).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
         }
 
-        layout.addView(TextView(this).apply {
-            text = getString(R.string.app_name)
-            textSize = 20f
-        })
+        findViewById<android.view.View>(R.id.btnSwitch).setOnClickListener {
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showInputMethodPicker()
+        }
 
-        layout.addView(TextView(this).apply {
-            text = getString(R.string.setup_explainer)
-            textSize = 14f
-            setPadding(0, 24, 0, 32)
-        })
-
-        layout.addView(Button(this).apply {
-            text = getString(R.string.enable_keyboard)
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-            }
-        })
-
-        layout.addView(Button(this).apply {
-            text = getString(R.string.switch_keyboard)
-            setOnClickListener {
-                val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
-                imm.showInputMethodPicker()
-            }
-        })
-
-        setContentView(layout)
+        findViewById<android.view.View>(R.id.btnEncrypt).setOnClickListener {
+            startActivity(Intent(this, EncryptActivity::class.java))
+        }
     }
 }

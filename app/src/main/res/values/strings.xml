@@ -1,7 +1,29 @@
 <resources>
     <string name="app_name">Secure Keyboard</string>
     <string name="keyboard_name">Secure Keyboard</string>
-    <string name="setup_explainer">هذا الكيبورد لا يملك صلاحية الوصول للإنترنت إطلاقا، ولا يخزن أو يسجل أي شيء تكتبه، ويمنع لقطات الشاشة أثناء استخدامه. لتفعيله: اضغط "تفعيل الكيبورد" ثم فعّله من القائمة، بعدها اضغط "تبديل الكيبورد" لاختياره.</string>
+    <string name="app_tagline">كيبورد وتشفير محلي، بدون إنترنت نهائيا</string>
+
+    <string name="setup_title">إعداد الكيبورد</string>
+    <string name="setup_explainer">هذا الكيبورد لا يملك صلاحية الوصول للإنترنت إطلاقا، ولا يخزن أو يسجل أي شيء تكتبه، ويمنع لقطات الشاشة أثناء استخدامه.</string>
     <string name="enable_keyboard">تفعيل الكيبورد من الإعدادات</string>
     <string name="switch_keyboard">تبديل الكيبورد الحالي</string>
+
+    <string name="encrypt_card_desc">شفّر أي نص بمفتاح تحدده أنت، بالكامل على جهازك بدون اتصال بالإنترنت.</string>
+    <string name="open_encrypt_tool">فتح أداة التشفير</string>
+
+    <string name="encrypt_title">تشفير وفك تشفير</string>
+    <string name="encrypt_subtitle">تشفير AES-256 محلي بالكامل على جهازك</string>
+    <string name="text_label">النص</string>
+    <string name="text_hint">اكتب النص هنا</string>
+    <string name="key_label">المفتاح</string>
+    <string name="key_hint">اكتب مفتاح قوي</string>
+    <string name="encrypt_btn">تشفير</string>
+    <string name="decrypt_btn">فك التشفير</string>
+    <string name="result_label">الناتج</string>
+
+    <string name="err_no_text">اكتب نص أولا</string>
+    <string name="err_no_cipher">حط النص المشفر أولا</string>
+    <string name="err_no_key">اكتب مفتاح أولا</string>
+    <string name="err_bad_key">المفتاح غلط أو النص غير سليم</string>
+    <string name="err_generic">حصل خطأ أثناء التشفير</string>
 </resources>
