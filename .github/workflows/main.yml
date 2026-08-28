@@ -21,11 +21,13 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: صلاحية تنفيذ لملف gradlew
-        run: chmod +x ./gradlew
+      - name: تجهيز Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.4'
 
       - name: بناء نسخة Debug من الـ APK
-        run: ./gradlew assembleDebug
+        run: gradle assembleDebug
 
       - name: رفع الـ APK كملف قابل للتحميل
         uses: actions/upload-artifact@v4
