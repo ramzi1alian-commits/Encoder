@@ -8,5 +8,10 @@
 -keep class androidx.appcompat.** { *; }
 -keep class com.google.android.material.** { *; }
 
+# Bouncy Castle (Argon2id) uses some reflection internally for provider
+# registration - keep it intact under R8.
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**
+
 # Don't warn about missing optional annotation classes pulled in transitively
 -dontwarn org.jetbrains.annotations.**

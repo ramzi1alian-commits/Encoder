@@ -2,12 +2,12 @@ package com.securekeyboard.app
 
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
+import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
-import android.widget.Button
-import android.widget.GridLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 
 /**
  * SecureInputMethodService
@@ -102,14 +102,29 @@ class SecureInputMethodService : InputMethodService() {
         return root
     }
 
-    private fun makeKey(label: String, weight: Float = 1f, onClick: (() -> Unit)? = null): Button {
-        return Button(this).apply {
+    private fun makeKey(label: String, weight: Float = 1f, onClick: (() -> Unit)? = null): TextView {
+        return TextView(this).apply {
             text = label
-            textSize = 16f
+            textSize = 18f
+            gravity = Gravity.CENTER
             isAllCaps = false
+            includeFontPadding = false
+            // The root cause of the "letters render as tiny symbols" bug:
+            // a plain Button carries a Material-style minWidth (~48-88dp)
+            // and internal padding baked into the theme. On a 12-key row
+            // each key's actual available width is far smaller than that,
+            // so the padding ate almost all the space and clipped the
+            // glyph down to a sliver (often just a dot). A TextView has
+            // no such baked-in minimum/padding, so it uses the full
+            // narrow width for the character itself.
+            minWidth = 0
+            minHeight = 0
+            setPadding(0, 0, 0, 0)
             typeface = Typeface.create(Fonts.currentTypeface(this@SecureInputMethodService), Typeface.NORMAL)
             setTextColor(resources.getColor(R.color.slate_200, theme))
             background = resources.getDrawable(R.drawable.bg_key, theme)
+            isClickable = true
+            isFocusable = true
             val lp = LinearLayout.LayoutParams(0, 130, weight)
             lp.setMargins(4, 4, 4, 4)
             layoutParams = lp

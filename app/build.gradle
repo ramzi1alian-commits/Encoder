@@ -37,6 +37,12 @@ dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
+    // Pure-Java Argon2id implementation (no native/.so binaries needed,
+    // so it works on every Android ABI without extra NDK setup). Used to
+    // replace PBKDF2: Argon2id costs real memory per guess, not just CPU
+    // time, which makes GPU/ASIC brute-forcing far more expensive than
+    // PBKDF2 at an equivalent "iteration count".
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.78.1'
     // Intentionally NO networking libraries (no OkHttp, Retrofit, etc).
     // This app never requests android.permission.INTERNET in the manifest,
     // so the OS itself blocks any network access at install time -

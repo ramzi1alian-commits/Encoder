@@ -17,6 +17,11 @@
     <string name="text_hint">اكتب النص هنا</string>
     <string name="key_label">المفتاح</string>
     <string name="key_hint">اكتب مفتاح قوي</string>
+    <string name="generate_key_btn">توليد مفتاح عشوائي قوي</string>
+    <string name="warn_write_down_key">مفتاح عشوائي حقيقي (مش مشتق من أي كلمة). انسخه أو اكتبه في مكان منفصل عن النص المشفر - متسيبهوش مخزن جنبه.</string>
+    <string name="err_weak_key">المفتاح ده ضعيف (~%1$d بت، المطلوب %2$d بت على الأقل). استخدم زرار "توليد مفتاح عشوائي قوي" أو مفتاح أطول وأكثر تنوعا.</string>
+    <string name="key_strength_ok">قوة تقديرية: ~%1$d بت ✓ (يفي بالحد الأدنى)</string>
+    <string name="key_strength_weak">قوة تقديرية: ~%1$d بت (المطلوب %2$d بت على الأقل)</string>
     <string name="encrypt_btn">تشفير</string>
     <string name="decrypt_btn">فك التشفير</string>
     <string name="result_label">الناتج</string>
