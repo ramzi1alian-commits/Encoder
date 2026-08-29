@@ -27,6 +27,12 @@
     <color name="accent_teal">#2DD4BF</color>
     <color name="accent_gold">#FBBF24</color>
     <color name="accent_purple">#A78BFA</color>
+    <!-- Tactical/professional olive accent, requested as a military-style option. -->
+    <color name="accent_olive">#84934A</color>
+
+    <!-- Key press feedback color (day mode) - previously keys had no
+         pressed-state visual at all, so taps gave no tactile confirmation. -->
+    <color name="key_pressed">#CBD5E1</color>
 
     <!--
         Fixed (NOT overridden in values-night) dark color for text that

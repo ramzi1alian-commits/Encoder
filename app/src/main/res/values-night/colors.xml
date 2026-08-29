@@ -13,4 +13,7 @@
     <color name="slate_400">#94A3B8</color>
     <color name="slate_200">#E2E8F0</color>
     <color name="white">#FFFFFF</color>
+
+    <!-- Key press feedback color (night mode). -->
+    <color name="key_pressed">#334155</color>
 </resources>

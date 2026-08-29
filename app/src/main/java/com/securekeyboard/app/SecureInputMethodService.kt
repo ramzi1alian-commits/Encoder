@@ -102,6 +102,16 @@ class SecureInputMethodService : InputMethodService() {
         return root
     }
 
+    /**
+     * Converts a dp value to pixels using this service's own display
+     * metrics. Needed because key row height is user-configurable (see
+     * the "keyboard height" setting) and must scale correctly across
+     * every screen density - a raw pixel count would render as a
+     * different physical size on every device.
+     */
+    private fun dpToPx(dp: Int): Int =
+        (dp * resources.displayMetrics.density).toInt()
+
     private fun makeKey(label: String, weight: Float = 1f, onClick: (() -> Unit)? = null): TextView {
         return TextView(this).apply {
             text = label
@@ -125,8 +135,17 @@ class SecureInputMethodService : InputMethodService() {
             background = resources.getDrawable(R.drawable.bg_key, theme)
             isClickable = true
             isFocusable = true
-            val lp = LinearLayout.LayoutParams(0, 130, weight)
-            lp.setMargins(4, 4, 4, 4)
+            // BUG FIX: this used to pass a raw pixel count (130) straight
+            // into LayoutParams instead of converting from dp, so every
+            // key rendered at a wildly different physical height depending
+            // on screen density (huge on low-dpi screens, tiny/cramped on
+            // high-dpi ones). Now it goes through dpToPx() and reads the
+            // user's chosen height level from Prefs, which is what makes
+            // the new "keyboard height" setting actually take effect.
+            val rowHeightPx = dpToPx(Prefs.keyRowHeightDp(this@SecureInputMethodService))
+            val lp = LinearLayout.LayoutParams(0, rowHeightPx, weight)
+            val marginPx = dpToPx(2)
+            lp.setMargins(marginPx, marginPx, marginPx, marginPx)
             layoutParams = lp
             setOnClickListener {
                 // Text goes directly to the focused field. Nothing here
@@ -140,4 +159,12 @@ class SecureInputMethodService : InputMethodService() {
         super.onStartInputView(info, restarting)
         // No state from a previous session is loaded here - intentionally.
     }
+
+    // Keep the keyboard docked at a fixed height rather than letting the
+    // platform switch it to fullscreen "extract" mode in landscape/small
+    // screens - fullscreen IME mode hides the field being edited behind
+    // the keyboard itself, which is disorienting and not appropriate for
+    // a security-focused input tool where the user needs to see what
+    // they're typing into at all times.
+    override fun onEvaluateFullscreenMode(): Boolean = false
 }

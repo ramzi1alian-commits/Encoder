@@ -5,19 +5,58 @@ import android.graphics.Typeface
 
 object Prefs {
     private const val FILE = "secure_keyboard_prefs"
-    private const val KEY_ACCENT = "accent_color"
+    private const val KEY_ACCENT = "accent_color_name"
     private const val KEY_DARK = "dark_mode"
     private const val KEY_FONT = "font_choice"
     private const val KEY_DENSITY = "density"
+    private const val KEY_HEIGHT = "keyboard_height"
+
+    // Accent colors are stored as a stable string key, NOT as a raw
+    // android resource id (the previous implementation did
+    // prefs.getInt(KEY_ACCENT, R.color.accent_cyan) / putInt(..., colorRes)).
+    // That was a real correctness/security bug: resource ids are NOT
+    // guaranteed stable across builds, especially with shrinkResources +
+    // minifyEnabled (both enabled in this project's release build) which
+    // can renumber resource ids when unused resources are stripped. A
+    // value saved by one build could silently resolve to a DIFFERENT,
+    // unrelated resource (or none at all) after an update, which can
+    // crash the input method service - and a crashing keyboard is a
+    // denial-of-service that can lock a user out of typing entirely,
+    // which matters a lot more on a device relied on for secure/urgent
+    // communication. A string key looked up through a fixed map has no
+    // such failure mode and safely falls back to a default if the
+    // stored value is ever unrecognized (e.g. after a downgrade).
+    private const val ACCENT_CYAN = "cyan"
+    private const val ACCENT_TEAL = "teal"
+    private const val ACCENT_GOLD = "gold"
+    private const val ACCENT_PURPLE = "purple"
+    private const val ACCENT_OLIVE = "olive"
+
+    private fun accentNameToRes(name: String): Int = when (name) {
+        ACCENT_TEAL -> R.color.accent_teal
+        ACCENT_GOLD -> R.color.accent_gold
+        ACCENT_PURPLE -> R.color.accent_purple
+        ACCENT_OLIVE -> R.color.accent_olive
+        else -> R.color.accent_cyan
+    }
+
+    private fun resToAccentName(colorRes: Int): String = when (colorRes) {
+        R.color.accent_teal -> ACCENT_TEAL
+        R.color.accent_gold -> ACCENT_GOLD
+        R.color.accent_purple -> ACCENT_PURPLE
+        R.color.accent_olive -> ACCENT_OLIVE
+        else -> ACCENT_CYAN
+    }
 
     fun accentColorRes(context: Context): Int {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        return prefs.getInt(KEY_ACCENT, R.color.accent_cyan)
+        val name = prefs.getString(KEY_ACCENT, ACCENT_CYAN) ?: ACCENT_CYAN
+        return accentNameToRes(name)
     }
 
     fun setAccentColorRes(context: Context, colorRes: Int) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
-            .putInt(KEY_ACCENT, colorRes).apply()
+            .putString(KEY_ACCENT, resToAccentName(colorRes)).apply()
     }
 
     fun isDarkMode(context: Context): Boolean {
@@ -33,7 +72,8 @@ object Prefs {
     // 0 = default sans-serif, 1 = serif, 2 = monospace
     fun fontChoice(context: Context): Int {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        return prefs.getInt(KEY_FONT, 0)
+        val value = prefs.getInt(KEY_FONT, 0)
+        return if (value in 0..2) value else 0
     }
 
     fun setFontChoice(context: Context, choice: Int) {
@@ -41,16 +81,39 @@ object Prefs {
             .putInt(KEY_FONT, choice).apply()
     }
 
-    // 0 = comfortable, 1 = compact
+    // 0 = comfortable, 1 = compact - controls app screen spacing only.
     fun density(context: Context): Int {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        return prefs.getInt(KEY_DENSITY, 0)
+        val value = prefs.getInt(KEY_DENSITY, 0)
+        return if (value in 0..1) value else 0
     }
 
     fun setDensity(context: Context, value: Int) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
             .putInt(KEY_DENSITY, value).apply()
     }
+
+    // Keyboard row height, in dp, applied to every key row in the IME.
+    // 0 = short, 1 = medium (default), 2 = tall. Stored as an index
+    // (not a raw dp value) and mapped through HEIGHT_DP_VALUES below so
+    // a corrupted/out-of-range stored value can never produce a
+    // degenerate (zero or negative) key height that would make the
+    // keyboard unusable.
+    val HEIGHT_DP_VALUES = intArrayOf(42, 52, 64)
+
+    fun heightLevel(context: Context): Int {
+        val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        val value = prefs.getInt(KEY_HEIGHT, 1)
+        return if (value in HEIGHT_DP_VALUES.indices) value else 1
+    }
+
+    fun setHeightLevel(context: Context, level: Int) {
+        if (level !in HEIGHT_DP_VALUES.indices) return
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .putInt(KEY_HEIGHT, level).apply()
+    }
+
+    fun keyRowHeightDp(context: Context): Int = HEIGHT_DP_VALUES[heightLevel(context)]
 }
 
 object Fonts {
@@ -134,7 +197,7 @@ object ThemeUtil {
     }
 
     /**
-     * Same idea but for a MaterialButton (mode/font/density buttons) -
+     * Same idea but for a MaterialButton (mode/font/density/height buttons) -
      * uses MaterialButton's own stroke properties instead of replacing its
      * background drawable outright, so we don't fight its built-in ripple
      * and corner-radius handling.

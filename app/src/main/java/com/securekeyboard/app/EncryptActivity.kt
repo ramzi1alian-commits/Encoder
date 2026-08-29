@@ -235,13 +235,30 @@ class EncryptActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // SECURITY FIX: this was previously only done in onDestroy(), which
+        // meant plaintext, the encryption key, and the result stayed fully
+        // visible in memory (and behind FLAG_SECURE, but still readable by
+        // anything with debugger/inspection access to this process) for as
+        // long as the app sat backgrounded - e.g. after switching apps or
+        // getting a phone call, potentially indefinitely. Clearing on
+        // onPause() as well means sensitive text no longer survives the
+        // activity leaving the foreground, which is the behavior a "secure"
+        // encryption screen should have.
+        clearSensitiveFields()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
-        // Best-effort: don't leave typed plaintext/password/result sitting
-        // in the views once the screen goes away.
+        clearSensitiveFields()
+    }
+
+    private fun clearSensitiveFields() {
         inputText.text?.clear()
         inputKey.text?.clear()
         resultText.text = ""
+        resultCard.visibility = View.GONE
     }
 }
 

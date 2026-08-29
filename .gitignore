@@ -1,0 +1,27 @@
+# Build outputs
+*/build/
+build/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# Local machine-specific config - NEVER commit this, it contains local SDK paths
+local.properties
+
+# Gradle
+.gradle/
+gradle-app.setting
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Signing (never commit real keystores/signing secrets to a public repo)
+*.jks
+*.keystore
+keystore.properties

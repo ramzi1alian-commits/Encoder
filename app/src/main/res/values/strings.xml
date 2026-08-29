@@ -1,6 +1,6 @@
 <resources>
-    <string name="app_name">Secure Keyboard</string>
-    <string name="keyboard_name">Secure Keyboard</string>
+    <string name="app_name">لوحة المفاتيح الآمنة برو</string>
+    <string name="keyboard_name">الآمنة برو</string>
     <string name="app_tagline">كيبورد وتشفير محلي، بدون إنترنت نهائيا</string>
 
     <string name="setup_title">إعداد الكيبورد</string>
@@ -38,6 +38,7 @@
     <string name="color_teal">أخضر مزرق</string>
     <string name="color_gold">ذهبي</string>
     <string name="color_purple">بنفسجي</string>
+    <string name="color_olive">زيتوني تكتيكي</string>
     <string name="display_mode_label">وضع العرض</string>
     <string name="mode_day">نهاري</string>
     <string name="mode_night">ليلي</string>
@@ -45,9 +46,13 @@
     <string name="font_sans">افتراضي</string>
     <string name="font_serif">كلاسيكي</string>
     <string name="font_mono">مسطر</string>
-    <string name="density_label">كثافة العرض</string>
+    <string name="density_label">كثافة عرض الشاشات</string>
     <string name="density_compact">مضغوط</string>
     <string name="density_comfortable">مريح</string>
-    <string name="settings_note">التغييرات بتتطبق على شاشات التطبيق وعلى الكيبورد. كل الإعدادات محفوظة محليا على جهازك فقط.</string>
+    <string name="height_label">ارتفاع لوحة المفاتيح</string>
+    <string name="height_short">منخفض</string>
+    <string name="height_medium">متوسط</string>
+    <string name="height_tall">مرتفع</string>
+    <string name="settings_note">التغييرات بتتطبق على شاشات التطبيق وعلى الكيبورد. كل الإعدادات محفوظة محليا على جهازك فقط، ومفيش أي اتصال بالإنترنت.</string>
     <string name="open_theme_settings">الإعدادات والمظهر</string>
 </resources>
