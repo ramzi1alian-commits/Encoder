@@ -48,6 +48,20 @@
             android:textColor="@color/slate_200"
             android:textSize="13sp" />
 
+        <!--
+            SECURITY FIX: textMultiLine alone leaves this field open to
+            whatever keyboard is actually active on the device. If the
+            user has NOT switched to SecureKeyboard as their system input
+            method, their default keyboard (Gboard, SwiftKey, etc.) is the
+            one actually capturing every keystroke typed here - and many
+            of those keyboards have predictive-text/personalization
+            features that can learn from, and in some cases sync, typed
+            content. textNoSuggestions tells the active IME not to offer
+            or record suggestions for this field, which is the standard
+            Android signal an app can send to reduce that learning/
+            leakage surface regardless of which keyboard the user has
+            installed.
+        -->
         <EditText
             android:id="@+id/inputText"
             style="@style/InputField"
@@ -56,7 +70,7 @@
             android:gravity="top|start"
             android:layout_marginBottom="16dp"
             android:hint="@string/text_hint"
-            android:inputType="textMultiLine"
+            android:inputType="textMultiLine|textNoSuggestions"
             android:saveEnabled="false"
             android:importantForAutofill="no" />
 

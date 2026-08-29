@@ -9,7 +9,7 @@ import androidx.core.content.ContextCompat
 
 object Prefs {
     private const val FILE = "secure_keyboard_prefs"
-    private const val KEY_ACCENT = "accent_color"
+    private const val KEY_ACCENT = "accent_color_name"
     private const val KEY_DARK = "dark_mode"
     private const val KEY_FONT = "font_choice"
     private const val KEY_DENSITY = "density"
@@ -23,14 +23,53 @@ object Prefs {
     const val MAX_KEYBOARD_HEIGHT_DP = 72
     const val DEFAULT_KEYBOARD_HEIGHT_DP = 52
 
+    // SECURITY/RELIABILITY FIX: the accent color used to be stored as a
+    // raw android resource id (prefs.getInt(KEY_ACCENT, R.color.accent_cyan)
+    // / putInt(..., colorRes)). Resource ids are NOT guaranteed stable
+    // across build variants - and this project's release build has BOTH
+    // minifyEnabled and shrinkResources enabled (see app/build.gradle),
+    // either of which can renumber resource ids when the resource table
+    // is stripped/repacked. A value saved by one installed build could
+    // silently resolve to a completely different (or nonexistent)
+    // resource after an app update, and ContextCompat.getColor() throws
+    // Resources.NotFoundException on an invalid id - uncaught, that
+    // crashes every single screen AND the keyboard itself (accentColor()
+    // is called from SettingsActivity, ThemeSettingsActivity,
+    // EncryptActivity, and every key drawn by the IME). A crashing
+    // keyboard is a real availability problem: it can lock the user out
+    // of typing in ANY app, not just this one.
+    //
+    // Fixed by storing a small, stable string key instead and mapping it
+    // through a fixed table. An unrecognized/corrupted stored value can
+    // only ever fall back to a safe default - it can never resolve to an
+    // arbitrary or invalid resource id.
+    private const val ACCENT_CYAN = "cyan"
+    private const val ACCENT_TEAL = "teal"
+    private const val ACCENT_GOLD = "gold"
+    private const val ACCENT_PURPLE = "purple"
+
+    private fun accentNameToRes(name: String?): Int = when (name) {
+        ACCENT_TEAL -> R.color.accent_teal
+        ACCENT_GOLD -> R.color.accent_gold
+        ACCENT_PURPLE -> R.color.accent_purple
+        else -> R.color.accent_cyan
+    }
+
+    private fun resToAccentName(colorRes: Int): String = when (colorRes) {
+        R.color.accent_teal -> ACCENT_TEAL
+        R.color.accent_gold -> ACCENT_GOLD
+        R.color.accent_purple -> ACCENT_PURPLE
+        else -> ACCENT_CYAN
+    }
+
     fun accentColorRes(context: Context): Int {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        return prefs.getInt(KEY_ACCENT, R.color.accent_cyan)
+        return accentNameToRes(prefs.getString(KEY_ACCENT, ACCENT_CYAN))
     }
 
     fun setAccentColorRes(context: Context, colorRes: Int) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
-            .putInt(KEY_ACCENT, colorRes).apply()
+            .putString(KEY_ACCENT, resToAccentName(colorRes)).apply()
     }
 
     fun isDarkMode(context: Context): Boolean {
