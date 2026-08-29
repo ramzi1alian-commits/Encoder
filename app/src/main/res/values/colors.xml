@@ -1,53 +1,41 @@
 <resources>
     <!--
-        DAY (light-mode) palette. android:theme is DayNight, so Android
-        swaps these for values-night/colors.xml automatically when the
-        user picks night mode.
-
-        FIXED IN THIS PASS: the old day palette was pure neutral slate-gray
-        (#F1F5F9 / #E2E8F0 / #CBD5E1 / #64748B ...) with almost zero color
-        saturation, which is exactly what reads as "faded/dusty" on
-        screen - there was no hue to it at all, just gray-on-gray. Every
-        neutral below now carries a slight blue tint (still clearly a
-        "neutral", not a colored background) and the light/dark ends of
-        the scale are pushed further apart (closer to true white and a
-        much deeper text color) for sharper, higher-contrast edges
-        instead of a washed-out low-contrast look.
+        MERGED PALETTE (v3) - synthesis of two design passes:
+        - Pass A went fully muted/jewel-toned and read as "dusty/washed out".
+        - Pass B went fully neon-saturated and read as "gamer RGB", not a
+          security product.
+        This version keeps confident, clearly-saturated hues (not pastel)
+        but pulls them back from pure neon, and keeps backgrounds close to
+        true black/white for sharp contrast - the "high-contrast" part of
+        pass B without the "electric" part.
     -->
-    <color name="navy_950">#F5F9FF</color>
+    <color name="navy_950">#F6F8FB</color>
     <color name="navy_900">#FFFFFF</color>
-    <color name="navy_800">#E9F1FC</color>
-    <color name="navy_700">#B9D4EF</color>
-    <color name="slate_400">#4F6B8A</color>
-    <color name="slate_200">#0B1F33</color>
-    <color name="white">#071729</color>
+    <color name="navy_800">#EBF0F7</color>
+    <color name="navy_700">#CBD8E8</color>
+    <color name="slate_400">#55647A</color>
+    <color name="slate_200">#131A26</color>
+    <color name="white">#0B0F17</color>
+
+    <!-- Accent palette: shared across day/night. Confident saturation,
+         consistent lightness across all four so none reads as an
+         afterthought next to the others. -->
+    <color name="accent_cyan">#14B8AA</color>    <!-- deep confident teal - default -->
+    <color name="accent_cyan_dark">#0C8578</color>
+    <color name="danger_red">#E15458</color>
+
+    <color name="accent_teal">#2FBD73</color>    <!-- vivid but not neon emerald -->
+    <color name="accent_gold">#E0A030</color>    <!-- warm gold, not caution-yellow -->
+    <color name="accent_purple">#9569D6</color>  <!-- rich violet -->
 
     <!--
-        Accent colors are shared by both day and night (not overridden
-        below) - these were the main source of the "dusty" look, since
-        accent_purple in particular (#A78BFA) is a pale, low-saturation
-        pastel. All four are now pushed to fully-saturated, high-contrast
-        hues instead of muted/pastel tones.
+        Fixed (NOT overridden in values-night) dark color for text on top
+        of an accent-colored button background - must stay dark in both
+        day and night mode since the accents are mid-to-high lightness.
     -->
-    <color name="accent_cyan">#00D3FF</color>
-    <color name="accent_cyan_dark">#0086B3</color>
-    <color name="danger_red">#FF4D4D</color>
+    <color name="text_on_accent">#0A0D14</color>
 
-    <color name="accent_teal">#00E6B8</color>
-    <color name="accent_gold">#FFC107</color>
-    <color name="accent_purple">#9B4DFF</color>
-
-    <!--
-        Fixed (NOT overridden in values-night) dark color for text that
-        sits on top of a bright accent-colored button background. Button
-        fills are always the bright accent color in both day and night
-        mode, so the text on them must always stay dark - it must NOT
-        follow navy_950's day/night flip, or day mode would render
-        near-invisible light text on a bright cyan/gold/etc button.
-    -->
-    <color name="text_on_accent">#071729</color>
-
-    <color name="navy_50_light">#F5F9FF</color>
+    <color name="navy_50_light">#F6F8FB</color>
     <color name="white_card">#FFFFFF</color>
 
     <color name="colorPrimary">@color/navy_900</color>

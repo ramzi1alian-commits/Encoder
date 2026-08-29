@@ -163,10 +163,16 @@ class EncryptActivity : AppCompatActivity() {
 
         findViewById<MaterialButton>(R.id.btnEncryptAction).setOnClickListener {
             hideError()
-            val text = inputText.text.toString()
+            // FIX (found in follow-up review): this used to read the
+            // plaintext as inputText.text.toString() - an immutable
+            // String that can never be wiped from memory, exactly the
+            // class of problem already fixed for the passphrase below
+            // but missed for the message content itself. Now read as a
+            // CharArray the same way the key already is.
+            val textChars = editableToCharArray(inputText.text)
             val passChars = editableToCharArray(inputKey.text)
             try {
-                if (text.isBlank()) { showError(getString(R.string.err_no_text)); return@setOnClickListener }
+                if (textChars.isEmpty()) { showError(getString(R.string.err_no_text)); return@setOnClickListener }
                 if (passChars.isEmpty()) { showError(getString(R.string.err_no_key)); return@setOnClickListener }
                 val bits = KeyStrength.estimateEntropyBits(passChars)
                 if (bits < KeyStrength.MIN_ENTROPY_BITS) {
@@ -177,7 +183,7 @@ class EncryptActivity : AppCompatActivity() {
                 }
                 try {
                     val expirySeconds = selectedExpirySeconds()
-                    showResult(encrypt(text, passChars, expirySeconds))
+                    showResult(encrypt(textChars, passChars, expirySeconds))
                     // The plaintext no longer needs to stay in the input
                     // field once it's been encrypted - clearing it here
                     // reduces how long it sits visible/in memory.
@@ -187,18 +193,30 @@ class EncryptActivity : AppCompatActivity() {
                 }
             } finally {
                 clearChars(passChars)
+                clearChars(textChars)
             }
         }
 
         findViewById<MaterialButton>(R.id.btnDecryptAction).setOnClickListener {
             hideError()
-            val text = inputText.text.toString()
+            // The ciphertext itself is NOT sensitive (it's meant to be
+            // shared/stored openly - only the plaintext and key are
+            // secret), so it's fine to read this one as a String.
+            val cipherB64 = inputText.text.toString()
             val passChars = editableToCharArray(inputKey.text)
             try {
-                if (text.isBlank()) { showError(getString(R.string.err_no_cipher)); return@setOnClickListener }
+                if (cipherB64.isBlank()) { showError(getString(R.string.err_no_cipher)); return@setOnClickListener }
                 if (passChars.isEmpty()) { showError(getString(R.string.err_no_key)); return@setOnClickListener }
                 try {
-                    showResult(decrypt(text, passChars))
+                    // decrypt() now returns the sensitive plaintext as a
+                    // CharArray (see fix note on the function itself)
+                    // instead of an unwipeable String.
+                    val plainChars = decrypt(cipherB64, passChars)
+                    try {
+                        showResult(plainChars)
+                    } finally {
+                        clearChars(plainChars)
+                    }
                 } catch (e: ExpiredMessageException) {
                     showError(getString(R.string.err_expired))
                 } catch (e: Exception) {
@@ -292,6 +310,21 @@ class EncryptActivity : AppCompatActivity() {
 
     private fun showResult(text: String) {
         resultText.text = text
+        resultCard.visibility = View.VISIBLE
+    }
+
+    /**
+     * Overload for decrypted plaintext (see decrypt() fix note): takes a
+     * CharArray instead of a String so the caller can zero it right after
+     * this call returns. The TextView itself still has to hold the text
+     * as some CharSequence internally to display it - that part is an
+     * unavoidable UI-framework requirement (you can't show text on
+     * screen without it existing as displayable text somewhere), not
+     * something app code can wipe. This overload only removes the extra,
+     * avoidable String copies that used to exist BEFORE display.
+     */
+    private fun showResult(chars: CharArray) {
+        resultText.text = String(chars)
         resultCard.visibility = View.VISIBLE
     }
 
@@ -414,10 +447,16 @@ class EncryptActivity : AppCompatActivity() {
         return buffer.array()
     }
 
-    private fun encrypt(text: String, passChars: CharArray, expirySeconds: Long?): String {
+    private fun encrypt(textChars: CharArray, passChars: CharArray, expirySeconds: Long?): String {
         val salt = ByteArray(saltLength).also { SecureRandom().nextBytes(it) }
         val iv = ByteArray(ivLength).also { SecureRandom().nextBytes(it) }
         val keyBytes = deriveKey(passChars, salt)
+        // FIX: this used to be text.toByteArray(Charsets.UTF_8) - a
+        // temporary buffer that was left for the garbage collector
+        // instead of being explicitly zeroed, unlike keyBytes below.
+        // charsToUtf8Bytes() also avoids ever creating a String out of
+        // the plaintext in the first place.
+        val plainBytes = charsToUtf8Bytes(textChars)
         try {
             val hasExpiry = expirySeconds != null
             val expiryEpoch = if (hasExpiry) (System.currentTimeMillis() / 1000L) + expirySeconds!! else 0L
@@ -427,16 +466,26 @@ class EncryptActivity : AppCompatActivity() {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
             cipher.updateAAD(header)
-            val cipherBytes = cipher.doFinal(text.toByteArray(Charsets.UTF_8))
+            val cipherBytes = cipher.doFinal(plainBytes)
 
             val combined = header + salt + iv + cipherBytes
             return Base64.encodeToString(combined, Base64.NO_WRAP)
         } finally {
             Arrays.fill(keyBytes, 0)
+            Arrays.fill(plainBytes, 0)
         }
     }
 
-    private fun decrypt(b64: String, passChars: CharArray): String {
+    /**
+     * FIX: this used to return String (the decrypted plaintext - the most
+     * sensitive value in the whole app, arguably more sensitive than the
+     * key itself since it's the actual secret being protected). A String
+     * can never be wiped from memory in the JVM/ART, exactly the problem
+     * already solved for the passphrase elsewhere in this file. Now
+     * returns a CharArray so the caller can zero it immediately after
+     * displaying it (see the btnDecryptAction handler).
+     */
+    private fun decrypt(b64: String, passChars: CharArray): CharArray {
         val combined = Base64.decode(b64, Base64.NO_WRAP)
         require(combined.size > headerLength + saltLength + ivLength) { "ciphertext too short" }
 
@@ -462,7 +511,15 @@ class EncryptActivity : AppCompatActivity() {
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
             cipher.updateAAD(header)
-            return String(cipher.doFinal(cipherBytes), Charsets.UTF_8)
+            val plainBytes = cipher.doFinal(cipherBytes)
+            try {
+                val charBuffer = Charsets.UTF_8.decode(java.nio.ByteBuffer.wrap(plainBytes))
+                val chars = CharArray(charBuffer.remaining())
+                charBuffer.get(chars)
+                return chars
+            } finally {
+                Arrays.fill(plainBytes, 0)
+            }
         } catch (e: AEADBadTagException) {
             // Wrong key OR a tampered header/ciphertext - GCM
             // deliberately can't tell you which, that's by design.
@@ -474,19 +531,32 @@ class EncryptActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
-        // Best-effort: don't leave a decrypted/encrypted result sitting
-        // in the system clipboard once the user has navigated away.
+        // FIX (reported bug): text used to only get cleared in onDestroy,
+        // but Android does NOT call onDestroy just because the user left
+        // the screen (pressed home, switched apps, opened another
+        // activity and came back) - the Activity can sit paused/stopped
+        // in memory for a long time with onDestroy never firing. That's
+        // why the text was still there on return. Clearing here in
+        // onPause instead means it's wiped every time the screen leaves
+        // the foreground, not only when Android actually destroys it.
+        clearSensitiveFields()
         clipboardClearRunnable?.let { clipboardHandler.removeCallbacks(it) }
         clearClipboardIfOurs()
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // Best-effort: don't leave typed plaintext/password/result sitting
-        // in the views once the screen goes away.
+    private fun clearSensitiveFields() {
         inputText.text?.clear()
         inputKey.text?.clear()
+        inputCustomMinutes.text?.clear()
         resultText.text = ""
+        resultCard.visibility = View.GONE
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        // Kept as a defensive second pass in case the process is killed
+        // in a way that skips onPause (rare, but free to guard against).
+        clearSensitiveFields()
         clipboardClearRunnable?.let { clipboardHandler.removeCallbacks(it) }
     }
 }

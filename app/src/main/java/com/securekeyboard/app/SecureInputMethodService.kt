@@ -78,6 +78,15 @@ class SecureInputMethodService : InputMethodService() {
             orientation = LinearLayout.VERTICAL
             background = ThemeUtil.keyboardBackground(this@SecureInputMethodService)
             setPadding(dpToPx(3f), dpToPx(5f), dpToPx(3f), dpToPx(5f))
+            // FIX: rows of keys were rendering left-to-right regardless of
+            // the Arabic text direction. android:supportsRtl in the
+            // manifest mirrors an ACTIVITY's window automatically based on
+            // locale, but an InputMethodService's window is a separate
+            // system overlay that does NOT reliably inherit that
+            // mirroring - it depends on OEM/IME framework behavior. Setting
+            // layoutDirection explicitly here guarantees the row always
+            // reads right-to-left regardless of device/locale quirks.
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
         }
 
         // NOTE: rows/letters and their order are UNCHANGED from before -

@@ -1,20 +1,16 @@
 <resources>
     <!--
-        NIGHT (dark-mode) palette.
-
-        FIXED IN THIS PASS: the previous dark scale (#0B1120 ... #334155)
-        sat entirely in a narrow, fairly muted mid-tone band, which read
-        as gray/hazy rather than crisp. The background is now pushed
-        closer to true black (more depth/contrast for cards to stand out
-        against), borders/strokes are more saturated blue instead of
-        gray-blue, and the main text color is a crisper near-white
-        instead of a slightly gray off-white.
+        NIGHT (dark-mode) palette - merged pass. Deep near-black background
+        (kept from the neon-accent pass, which correctly identified that
+        the old #0B1120 background didn't give cards enough contrast to
+        stand out), paired with the pulled-back (not neon) accent set
+        defined in values/colors.xml.
     -->
-    <color name="navy_950">#050A14</color>
-    <color name="navy_900">#0C1526</color>
-    <color name="navy_800">#142238</color>
-    <color name="navy_700">#2C4570</color>
-    <color name="slate_400">#93AEDA</color>
-    <color name="slate_200">#F3F8FF</color>
-    <color name="white">#FFFFFF</color>
+    <color name="navy_950">#0A0D14</color>
+    <color name="navy_900">#12161F</color>
+    <color name="navy_800">#1A2029</color>
+    <color name="navy_700">#2B3547</color>
+    <color name="slate_400">#8FA0B8</color>
+    <color name="slate_200">#EEF2F8</color>
+    <color name="white">#FAFCFF</color>
 </resources>

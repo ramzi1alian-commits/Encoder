@@ -11,6 +11,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    # الأسرار بتتنسخ هنا لمتغيرات env على مستوى الـ job. السبب: GitHub
+    # Actions مايسمحش تستخدم "secrets.XXX" مباشرة جوه شرط "if:" (بيديك
+    # بالظبط الخطأ اللي ظهرلك: "Unrecognized named-value: 'secrets'").
+    # الطريقة الرسمية المعتمدة هي إنك تحط قيمة الـ secret في متغير env
+    # الأول، وبعدين تتحقق من متغير الـ env ده في الـ if - وده اللي
+    # بيحصل تحت.
+    env:
+      RELEASE_STORE_FILE_BASE64: ${{ secrets.RELEASE_STORE_FILE_BASE64 }}
+      RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
+      RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+
     steps:
       - name: سحب الكود
         uses: actions/checkout@v4
@@ -43,26 +55,23 @@ jobs:
       #   RELEASE_STORE_PASSWORD
       #   RELEASE_KEY_ALIAS
       #   RELEASE_KEY_PASSWORD
-      # من غيرهم الخطوتين دول بيتخطوا تلقائيا، ومفيش أي نسخة "Release"
+      # من غيرهم الخطوات دي بتتخطى تلقائيا، ومفيش أي نسخة "Release"
       # موقّعة بمفتاح عام بتتعمل - ده عمدا، عشان النسخة القديمة كانت
       # بتوقّع نسخة الـ Debug بمفتاح Debug عام معروف، وأي حد يقدر يبني
       # نسخة تشبهها بالظبط. لأي استخدام حقيقي، لازم Keystore خاص بيك إنت.
       # ------------------------------------------------------------------
       - name: فك تشفير الـ keystore الخاص بيك
-        if: ${{ secrets.RELEASE_STORE_FILE_BASE64 != '' }}
-        run: echo "${{ secrets.RELEASE_STORE_FILE_BASE64 }}" | base64 -d > release.keystore
+        if: ${{ env.RELEASE_STORE_FILE_BASE64 != '' }}
+        run: echo "$RELEASE_STORE_FILE_BASE64" | base64 -d > release.keystore
 
       - name: بناء نسخة Release موقّعة بمفتاحك
-        if: ${{ secrets.RELEASE_STORE_FILE_BASE64 != '' }}
+        if: ${{ env.RELEASE_STORE_FILE_BASE64 != '' }}
         env:
           RELEASE_STORE_FILE: release.keystore
-          RELEASE_STORE_PASSWORD: ${{ secrets.RELEASE_STORE_PASSWORD }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
         run: gradle assembleRelease
 
       - name: رفع نسخة الـ Release الموقّعة
-        if: ${{ secrets.RELEASE_STORE_FILE_BASE64 != '' }}
+        if: ${{ env.RELEASE_STORE_FILE_BASE64 != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: secure-keyboard-release-apk
