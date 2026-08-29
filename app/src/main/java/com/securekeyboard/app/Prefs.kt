@@ -2,61 +2,35 @@ package com.securekeyboard.app
 
 import android.content.Context
 import android.graphics.Typeface
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.StateListDrawable
+import androidx.core.content.ContextCompat
 
 object Prefs {
     private const val FILE = "secure_keyboard_prefs"
-    private const val KEY_ACCENT = "accent_color_name"
+    private const val KEY_ACCENT = "accent_color"
     private const val KEY_DARK = "dark_mode"
     private const val KEY_FONT = "font_choice"
     private const val KEY_DENSITY = "density"
-    private const val KEY_HEIGHT = "keyboard_height"
+    private const val KEY_KEYBOARD_HEIGHT = "keyboard_height_dp"
 
-    // Accent colors are stored as a stable string key, NOT as a raw
-    // android resource id (the previous implementation did
-    // prefs.getInt(KEY_ACCENT, R.color.accent_cyan) / putInt(..., colorRes)).
-    // That was a real correctness/security bug: resource ids are NOT
-    // guaranteed stable across builds, especially with shrinkResources +
-    // minifyEnabled (both enabled in this project's release build) which
-    // can renumber resource ids when unused resources are stripped. A
-    // value saved by one build could silently resolve to a DIFFERENT,
-    // unrelated resource (or none at all) after an update, which can
-    // crash the input method service - and a crashing keyboard is a
-    // denial-of-service that can lock a user out of typing entirely,
-    // which matters a lot more on a device relied on for secure/urgent
-    // communication. A string key looked up through a fixed map has no
-    // such failure mode and safely falls back to a default if the
-    // stored value is ever unrecognized (e.g. after a downgrade).
-    private const val ACCENT_CYAN = "cyan"
-    private const val ACCENT_TEAL = "teal"
-    private const val ACCENT_GOLD = "gold"
-    private const val ACCENT_PURPLE = "purple"
-    private const val ACCENT_OLIVE = "olive"
-
-    private fun accentNameToRes(name: String): Int = when (name) {
-        ACCENT_TEAL -> R.color.accent_teal
-        ACCENT_GOLD -> R.color.accent_gold
-        ACCENT_PURPLE -> R.color.accent_purple
-        ACCENT_OLIVE -> R.color.accent_olive
-        else -> R.color.accent_cyan
-    }
-
-    private fun resToAccentName(colorRes: Int): String = when (colorRes) {
-        R.color.accent_teal -> ACCENT_TEAL
-        R.color.accent_gold -> ACCENT_GOLD
-        R.color.accent_purple -> ACCENT_PURPLE
-        R.color.accent_olive -> ACCENT_OLIVE
-        else -> ACCENT_CYAN
-    }
+    // Reasonable dp bounds for a comfortable-but-compact keyboard row.
+    // (For reference: 1cm on a phone screen is roughly 63dp - the slider
+    // lets the user go a bit under or over that instead of a single
+    // hardcoded value baked into the code.)
+    const val MIN_KEYBOARD_HEIGHT_DP = 40
+    const val MAX_KEYBOARD_HEIGHT_DP = 72
+    const val DEFAULT_KEYBOARD_HEIGHT_DP = 52
 
     fun accentColorRes(context: Context): Int {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        val name = prefs.getString(KEY_ACCENT, ACCENT_CYAN) ?: ACCENT_CYAN
-        return accentNameToRes(name)
+        return prefs.getInt(KEY_ACCENT, R.color.accent_cyan)
     }
 
     fun setAccentColorRes(context: Context, colorRes: Int) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
-            .putString(KEY_ACCENT, resToAccentName(colorRes)).apply()
+            .putInt(KEY_ACCENT, colorRes).apply()
     }
 
     fun isDarkMode(context: Context): Boolean {
@@ -72,8 +46,7 @@ object Prefs {
     // 0 = default sans-serif, 1 = serif, 2 = monospace
     fun fontChoice(context: Context): Int {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        val value = prefs.getInt(KEY_FONT, 0)
-        return if (value in 0..2) value else 0
+        return prefs.getInt(KEY_FONT, 0)
     }
 
     fun setFontChoice(context: Context, choice: Int) {
@@ -81,11 +54,10 @@ object Prefs {
             .putInt(KEY_FONT, choice).apply()
     }
 
-    // 0 = comfortable, 1 = compact - controls app screen spacing only.
+    // 0 = comfortable, 1 = compact
     fun density(context: Context): Int {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        val value = prefs.getInt(KEY_DENSITY, 0)
-        return if (value in 0..1) value else 0
+        return prefs.getInt(KEY_DENSITY, 0)
     }
 
     fun setDensity(context: Context, value: Int) {
@@ -93,27 +65,29 @@ object Prefs {
             .putInt(KEY_DENSITY, value).apply()
     }
 
-    // Keyboard row height, in dp, applied to every key row in the IME.
-    // 0 = short, 1 = medium (default), 2 = tall. Stored as an index
-    // (not a raw dp value) and mapped through HEIGHT_DP_VALUES below so
-    // a corrupted/out-of-range stored value can never produce a
-    // degenerate (zero or negative) key height that would make the
-    // keyboard unusable.
-    val HEIGHT_DP_VALUES = intArrayOf(42, 52, 64)
-
-    fun heightLevel(context: Context): Int {
+    /**
+     * Height (in dp, NOT raw pixels) of a single keyboard key row.
+     *
+     * IMPORTANT FIX: the keyboard used to hardcode a raw pixel value
+     * (130px) for key height. Raw pixels are NOT device-independent, so
+     * the same "130" produced wildly different physical sizes depending
+     * on screen density (huge on an old mdpi screen, tiny on a modern
+     * xxxhdpi screen). Storing/using dp here and converting to px with
+     * the device's actual density (see SecureInputMethodService.dpToPx)
+     * makes the key height consistent across devices, and adjustable by
+     * the user in Settings instead of a single value baked in once.
+     */
+    fun keyboardHeightDp(context: Context): Int {
         val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
-        val value = prefs.getInt(KEY_HEIGHT, 1)
-        return if (value in HEIGHT_DP_VALUES.indices) value else 1
+        val value = prefs.getInt(KEY_KEYBOARD_HEIGHT, DEFAULT_KEYBOARD_HEIGHT_DP)
+        return value.coerceIn(MIN_KEYBOARD_HEIGHT_DP, MAX_KEYBOARD_HEIGHT_DP)
     }
 
-    fun setHeightLevel(context: Context, level: Int) {
-        if (level !in HEIGHT_DP_VALUES.indices) return
+    fun setKeyboardHeightDp(context: Context, dp: Int) {
+        val clamped = dp.coerceIn(MIN_KEYBOARD_HEIGHT_DP, MAX_KEYBOARD_HEIGHT_DP)
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
-            .putInt(KEY_HEIGHT, level).apply()
+            .putInt(KEY_KEYBOARD_HEIGHT, clamped).apply()
     }
-
-    fun keyRowHeightDp(context: Context): Int = HEIGHT_DP_VALUES[heightLevel(context)]
 }
 
 object Fonts {
@@ -163,7 +137,7 @@ object Fonts {
 object ThemeUtil {
 
     fun accentColor(context: Context): Int =
-        androidx.core.content.ContextCompat.getColor(context, Prefs.accentColorRes(context))
+        ContextCompat.getColor(context, Prefs.accentColorRes(context))
 
     /** Tints a filled ("primary") button's background with the current accent. */
     fun tintPrimary(context: Context, vararg buttons: com.google.android.material.button.MaterialButton) {
@@ -187,17 +161,17 @@ object ThemeUtil {
      * made color choices look like they weren't being saved.
      */
     fun setSelected(view: android.view.View, selected: Boolean, accent: Int) {
-        val bg = android.graphics.drawable.GradientDrawable()
+        val bg = GradientDrawable()
         bg.cornerRadius = 10f * view.resources.displayMetrics.density
-        bg.setColor(androidx.core.content.ContextCompat.getColor(view.context, R.color.navy_800))
+        bg.setColor(ContextCompat.getColor(view.context, R.color.navy_800))
         val strokeWidthDp = if (selected) 2f else 1f
-        val strokeColor = if (selected) accent else androidx.core.content.ContextCompat.getColor(view.context, R.color.navy_700)
+        val strokeColor = if (selected) accent else ContextCompat.getColor(view.context, R.color.navy_700)
         bg.setStroke((strokeWidthDp * view.resources.displayMetrics.density).toInt(), strokeColor)
         view.background = bg
     }
 
     /**
-     * Same idea but for a MaterialButton (mode/font/density/height buttons) -
+     * Same idea but for a MaterialButton (mode/font/density buttons) -
      * uses MaterialButton's own stroke properties instead of replacing its
      * background drawable outright, so we don't fight its built-in ripple
      * and corner-radius handling.
@@ -215,9 +189,56 @@ object ThemeUtil {
         } else {
             button.strokeWidth = (1 * context.resources.displayMetrics.density).toInt()
             button.strokeColor = android.content.res.ColorStateList.valueOf(
-                androidx.core.content.ContextCompat.getColor(context, R.color.navy_700)
+                ContextCompat.getColor(context, R.color.navy_700)
             )
-            button.setTextColor(androidx.core.content.ContextCompat.getColor(context, R.color.slate_200))
+            button.setTextColor(ContextCompat.getColor(context, R.color.slate_200))
         }
+    }
+
+    /**
+     * Professional-looking keyboard key background: a subtle vertical
+     * gradient (instead of a flat single color) with a thin border, built
+     * as a proper pressed/normal state-list so keys give visual feedback
+     * on touch. When [accented] is true (the space/delete/enter action
+     * keys) the border uses the user's chosen accent color instead of a
+     * neutral one, so those keys read as visually distinct actions.
+     */
+    fun keyBackgroundSelector(context: Context, accented: Boolean): Drawable {
+        val states = StateListDrawable()
+        states.addState(intArrayOf(android.R.attr.state_pressed), keyShape(context, pressed = true, accented = accented))
+        states.addState(intArrayOf(), keyShape(context, pressed = false, accented = accented))
+        return states
+    }
+
+    private fun keyShape(context: Context, pressed: Boolean, accented: Boolean): GradientDrawable {
+        val density = context.resources.displayMetrics.density
+        val bg = GradientDrawable()
+        bg.cornerRadius = 10f * density
+        bg.orientation = GradientDrawable.Orientation.TOP_BOTTOM
+        if (pressed) {
+            val pressedColor = ContextCompat.getColor(context, R.color.navy_700)
+            bg.colors = intArrayOf(pressedColor, pressedColor)
+        } else {
+            bg.colors = intArrayOf(
+                ContextCompat.getColor(context, R.color.navy_800),
+                ContextCompat.getColor(context, R.color.navy_900)
+            )
+        }
+        val strokeColor = if (accented) accentColor(context) else ContextCompat.getColor(context, R.color.navy_700)
+        val strokeWidthDp = if (accented) 1.6f else 1f
+        bg.setStroke((strokeWidthDp * density).toInt(), strokeColor)
+        return bg
+    }
+
+    /** Subtle vertical gradient for the whole keyboard surface instead of a flat fill. */
+    fun keyboardBackground(context: Context): Drawable {
+        val bg = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            intArrayOf(
+                ContextCompat.getColor(context, R.color.navy_900),
+                ContextCompat.getColor(context, R.color.navy_950)
+            )
+        )
+        return bg
     }
 }

@@ -1,14 +1,16 @@
 <resources>
-    <string name="app_name">لوحة المفاتيح الآمنة برو</string>
-    <string name="keyboard_name">الآمنة برو</string>
+    <!-- الاسم اتغيّر (وكمان الـ applicationId في build.gradle) عشان
+         النسخة دي تتثبت بجانب أي نسخة قديمة من التطبيق، مش تستبدلها. -->
+    <string name="app_name">كيبورد آمن برو</string>
+    <string name="keyboard_name">كيبورد آمن برو</string>
     <string name="app_tagline">كيبورد وتشفير محلي، بدون إنترنت نهائيا</string>
 
     <string name="setup_title">إعداد الكيبورد</string>
-    <string name="setup_explainer">هذا الكيبورد لا يملك صلاحية الوصول للإنترنت إطلاقا، ولا يخزن أو يسجل أي شيء تكتبه، ويمنع لقطات الشاشة أثناء استخدامه.</string>
+    <string name="setup_explainer">هذه الكيبورد لا يملك صلاحية الوصول للإنترنت إطلاقا، ولا يخزن أو يسجل أي شيء تكتبه، ويمنع لقطات الشاشة أثناء استخدامه.</string>
     <string name="enable_keyboard">تفعيل الكيبورد من الإعدادات</string>
     <string name="switch_keyboard">تبديل الكيبورد الحالي</string>
 
-    <string name="encrypt_card_desc">شفّر أي نص بمفتاح تحدده أنت، بالكامل على جهازك بدون اتصال بالإنترنت.</string>
+    <string name="encrypt_card_desc">شفّر أي نص بمفتاح تحدده أنت، جهازك بدون اتصال بالإنترنت.</string>
     <string name="open_encrypt_tool">فتح أداة التشفير</string>
 
     <string name="encrypt_title">تشفير وفك تشفير</string>
@@ -18,19 +20,38 @@
     <string name="key_label">المفتاح</string>
     <string name="key_hint">اكتب مفتاح قوي</string>
     <string name="generate_key_btn">توليد مفتاح عشوائي قوي</string>
-    <string name="warn_write_down_key">مفتاح عشوائي حقيقي (مش مشتق من أي كلمة). انسخه أو اكتبه في مكان منفصل عن النص المشفر - متسيبهوش مخزن جنبه.</string>
+    <string name="warn_write_down_key">مفتاح عشوائي حقيقي (مش مشتق من أي كلمة). انسخه أو اكتبه في مكان منفصل عن النص المشفر - متسيبهوش مخزّن جنبه.</string>
     <string name="err_weak_key">المفتاح ده ضعيف (~%1$d بت، المطلوب %2$d بت على الأقل). استخدم زرار "توليد مفتاح عشوائي قوي" أو مفتاح أطول وأكثر تنوعا.</string>
-    <string name="key_strength_ok">قوة تقديرية: ~%1$d بت ✓ (يفي بالحد الأدنى)</string>
+    <string name="key_strength_ok">قوة تقديرية: ~%1$d بت (يفي بالحد الأدنى)</string>
     <string name="key_strength_weak">قوة تقديرية: ~%1$d بت (المطلوب %2$d بت على الأقل)</string>
     <string name="encrypt_btn">تشفير</string>
     <string name="decrypt_btn">فك التشفير</string>
     <string name="result_label">الناتج</string>
+    <string name="copy_result_btn">نسخ الناتج</string>
+    <string name="clear_all_btn">مسح كل الحقول والحافظة</string>
+    <string name="clipboard_autoclear_notice">تم النسخ - هيتم مسح الحافظة تلقائيا خلال 30 ثانية</string>
+    <string name="clipboard_cleared_notice">تم مسح الحافظة</string>
 
     <string name="err_no_text">اكتب نص أولا</string>
     <string name="err_no_cipher">حط النص المشفر أولا</string>
     <string name="err_no_key">اكتب مفتاح أولا</string>
     <string name="err_bad_key">المفتاح غلط أو النص غير سليم</string>
     <string name="err_generic">حصل خطأ أثناء التشفير</string>
+    <string name="err_expired">انتهت صلاحية هذه الرسالة - لم يعد بالإمكان فك تشفيرها (بواسطة هذا التطبيق).</string>
+
+    <string name="expiry_label">مدة صلاحية الرسالة (اختياري)</string>
+    <string-array name="expiry_options">
+        <item>بدون انتهاء</item>
+        <item>دقيقتين</item>
+        <item>5 دقائق</item>
+        <item>15 دقيقة</item>
+        <item>ساعة</item>
+        <item>مخصص (بالدقائق)</item>
+    </string-array>
+    <string name="expiry_custom_hint">عدد الدقائق</string>
+    <string name="expiry_warning_note">ملحوظة مهمة: التطبيق ده شغال بدون إنترنت بالكامل، فمفيش خادم يقدر يمسح المفتاح فعليا بعد الوقت. الخيار ده بيخلي التطبيق نفسه بس يرفض فك التشفير بعد الوقت المحدد (وبيكتشف أي تلاعب في وقت الانتهاء)، لكنه مش ضمان مطلق: أي حد معاه المفتاح والنص المشفر يقدر يفك تشفيره بأداة تانية حتى بعد ما "تنتهي" صلاحيته. اعتبرها حماية ضد فك التشفير العرضي بعد فترة، مش قفل غير قابل للكسر رياضيا.</string>
+
+    <string name="warn_root_detected">تنبيه: في مؤشرات على إن الجهاز ده معمول له Root (أو نسخة نظام غير رسمية). ده مش قرار نهائي (ممكن يكون خطأ)، لكن معناه الحماية اللي بيوفرها التطبيق (منع اللقطة، تصفير الذاكرة) مش مضمونة على النظام ده، لأن نظام معدّل يقدر يتخطاها. لأي استخدام حساس فعلا، استخدم جهاز غير معدّل.</string>
 
     <string name="settings_title">الإعدادات والمظهر</string>
     <string name="theme_color_label">لون الهوية البصرية</string>
@@ -38,7 +59,6 @@
     <string name="color_teal">أخضر مزرق</string>
     <string name="color_gold">ذهبي</string>
     <string name="color_purple">بنفسجي</string>
-    <string name="color_olive">زيتوني تكتيكي</string>
     <string name="display_mode_label">وضع العرض</string>
     <string name="mode_day">نهاري</string>
     <string name="mode_night">ليلي</string>
@@ -46,13 +66,11 @@
     <string name="font_sans">افتراضي</string>
     <string name="font_serif">كلاسيكي</string>
     <string name="font_mono">مسطر</string>
-    <string name="density_label">كثافة عرض الشاشات</string>
+    <string name="density_label">كثافة العرض</string>
     <string name="density_compact">مضغوط</string>
     <string name="density_comfortable">مريح</string>
-    <string name="height_label">ارتفاع لوحة المفاتيح</string>
-    <string name="height_short">منخفض</string>
-    <string name="height_medium">متوسط</string>
-    <string name="height_tall">مرتفع</string>
-    <string name="settings_note">التغييرات بتتطبق على شاشات التطبيق وعلى الكيبورد. كل الإعدادات محفوظة محليا على جهازك فقط، ومفيش أي اتصال بالإنترنت.</string>
+    <string name="keyboard_height_label">ارتفاع مفاتيح الكيبورد</string>
+    <string name="keyboard_height_value">الارتفاع الحالي: %1$d (معاينة تحت)</string>
+    <string name="settings_note">التغييرات بتتطبق على شاشات التطبيق فورا. ارتفاع الكيبورد بيتطبق فعليا في المرة الجاية اللي تفتح فيها الكيبورد. كل الإعدادات محفوظة محليا على جهازك فقط.</string>
     <string name="open_theme_settings">الإعدادات والمظهر</string>
 </resources>

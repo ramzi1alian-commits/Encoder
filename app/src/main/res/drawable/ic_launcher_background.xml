@@ -1,21 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    New LIGHT launcher background (previously a solid dark navy fill).
-    A soft slate-white base gives the icon a clean, professional look on
-    the home screen and reads clearly at small sizes, while the shield
-    stays in the dark navy for contrast.
+    FIXED: the previous gradient (#F3F9FF -> #DCEEFB) was almost
+    colorless - two barely-different near-whites, reading as flat/dusty
+    rather than a real gradient. This version keeps it light (still a
+    "light icon" as requested) but with a visibly deeper, more saturated
+    blue at the low end for real contrast/depth.
 -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#F1F5F9"
-        android:pathData="M0,0h108v108h-108z" />
-    <!-- Subtle inner tint so flat light backgrounds don't look empty on
-         adaptive-icon masks that crop close to the edges. -->
-    <path
-        android:fillColor="#E2E8F0"
-        android:pathData="M0,72 h108 v36 h-108 z" />
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:angle="135"
+                android:startColor="#EAF6FF"
+                android:endColor="#9FD8FF" />
+        </aapt:attr>
+    </path>
 </vector>

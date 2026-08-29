@@ -1,38 +1,41 @@
 <resources>
     <!--
-        These are the DAY (light-mode) values for the same color names used
-        throughout the app's layouts/styles. android:theme is DayNight, so
-        Android automatically swaps these for the values-night/colors.xml
-        set when the user picks night mode - that's what actually makes the
-        day/night toggle produce two different-looking screens instead of
-        one dark screen no matter what's selected.
+        DAY (light-mode) palette. android:theme is DayNight, so Android
+        swaps these for values-night/colors.xml automatically when the
+        user picks night mode.
 
-        The names (navy_950, slate_200, "white", ...) describe their role
-        in the ORIGINAL dark theme; here in the light variant the same
-        names are reused for the equivalent role (e.g. "white" = main
-        title text color) even though the literal hex is no longer white.
+        FIXED IN THIS PASS: the old day palette was pure neutral slate-gray
+        (#F1F5F9 / #E2E8F0 / #CBD5E1 / #64748B ...) with almost zero color
+        saturation, which is exactly what reads as "faded/dusty" on
+        screen - there was no hue to it at all, just gray-on-gray. Every
+        neutral below now carries a slight blue tint (still clearly a
+        "neutral", not a colored background) and the light/dark ends of
+        the scale are pushed further apart (closer to true white and a
+        much deeper text color) for sharper, higher-contrast edges
+        instead of a washed-out low-contrast look.
     -->
-    <color name="navy_950">#F1F5F9</color>
+    <color name="navy_950">#F5F9FF</color>
     <color name="navy_900">#FFFFFF</color>
-    <color name="navy_800">#E2E8F0</color>
-    <color name="navy_700">#CBD5E1</color>
-    <color name="slate_400">#64748B</color>
-    <color name="slate_200">#1E293B</color>
-    <color name="white">#0F172A</color>
+    <color name="navy_800">#E9F1FC</color>
+    <color name="navy_700">#B9D4EF</color>
+    <color name="slate_400">#4F6B8A</color>
+    <color name="slate_200">#0B1F33</color>
+    <color name="white">#071729</color>
 
-    <color name="accent_cyan">#22D3EE</color>
-    <color name="accent_cyan_dark">#0891B2</color>
-    <color name="danger_red">#F87171</color>
+    <!--
+        Accent colors are shared by both day and night (not overridden
+        below) - these were the main source of the "dusty" look, since
+        accent_purple in particular (#A78BFA) is a pale, low-saturation
+        pastel. All four are now pushed to fully-saturated, high-contrast
+        hues instead of muted/pastel tones.
+    -->
+    <color name="accent_cyan">#00D3FF</color>
+    <color name="accent_cyan_dark">#0086B3</color>
+    <color name="danger_red">#FF4D4D</color>
 
-    <color name="accent_teal">#2DD4BF</color>
-    <color name="accent_gold">#FBBF24</color>
-    <color name="accent_purple">#A78BFA</color>
-    <!-- Tactical/professional olive accent, requested as a military-style option. -->
-    <color name="accent_olive">#84934A</color>
-
-    <!-- Key press feedback color (day mode) - previously keys had no
-         pressed-state visual at all, so taps gave no tactile confirmation. -->
-    <color name="key_pressed">#CBD5E1</color>
+    <color name="accent_teal">#00E6B8</color>
+    <color name="accent_gold">#FFC107</color>
+    <color name="accent_purple">#9B4DFF</color>
 
     <!--
         Fixed (NOT overridden in values-night) dark color for text that
@@ -42,9 +45,9 @@
         follow navy_950's day/night flip, or day mode would render
         near-invisible light text on a bright cyan/gold/etc button.
     -->
-    <color name="text_on_accent">#0B1120</color>
+    <color name="text_on_accent">#071729</color>
 
-    <color name="navy_50_light">#F1F5F9</color>
+    <color name="navy_50_light">#F5F9FF</color>
     <color name="white_card">#FFFFFF</color>
 
     <color name="colorPrimary">@color/navy_900</color>

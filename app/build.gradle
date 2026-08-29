@@ -8,10 +8,12 @@ android {
     compileSdk 34
 
     defaultConfig {
-        // Changed from com.securekeyboard.app so this build installs
-        // side-by-side with the old app instead of overwriting it -
-        // Android treats applicationId as the unique app identity,
-        // independent from the Kotlin package (namespace) above.
+        // Changed from com.securekeyboard.app -> com.securekeyboard.pro so
+        // this build installs as a SEPARATE app next to any older version
+        // already on the device, instead of overwriting/removing it.
+        // Android treats applicationId as the unique app identity; two
+        // different IDs can be installed side by side even though the
+        // internal Kotlin package (namespace, above) is unchanged.
         applicationId "com.securekeyboard.pro"
         minSdk 24
         targetSdk 34
@@ -19,11 +21,35 @@ android {
         versionName "2.0"
     }
 
+    signingConfigs {
+        release {
+            // Release signing is opt-in via environment variables / CI
+            // secrets (RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD,
+            // RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD). If they are not
+            // set, this signingConfig is left incomplete on purpose:
+            // Gradle will then produce an UNSIGNED release build rather
+            // than silently falling back to a shared/public debug
+            // keystore. Anyone doing a real (non-test) deployment must
+            // supply their own private keystore. See README.md.
+            def storeFilePath = System.getenv("RELEASE_STORE_FILE")
+            if (storeFilePath != null && !storeFilePath.isEmpty()) {
+                storeFile file(storeFilePath)
+                storePassword System.getenv("RELEASE_STORE_PASSWORD")
+                keyAlias System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            def storeFilePath = System.getenv("RELEASE_STORE_FILE")
+            if (storeFilePath != null && !storeFilePath.isEmpty()) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 

@@ -1,11 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-    Was a flat shape with no pressed state at all, so tapping a key gave
-    zero visual confirmation of the touch (a real usability/reliability
-    issue on a keyboard - users could not tell a tap registered). Now a
-    proper state-list so every key shows immediate press feedback.
--->
-<selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:state_pressed="true" android:drawable="@drawable/bg_key_pressed" />
-    <item android:drawable="@drawable/bg_key_normal" />
-</selector>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="@color/navy_800" />
+    <corners android:radius="8dp" />
+</shape>

@@ -2,6 +2,8 @@ package com.securekeyboard.app
 
 import android.os.Bundle
 import android.view.View
+import android.widget.SeekBar
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.material.button.MaterialButton
@@ -12,7 +14,6 @@ class ThemeSettingsActivity : AppCompatActivity() {
     private lateinit var swatchTeal: View
     private lateinit var swatchGold: View
     private lateinit var swatchPurple: View
-    private lateinit var swatchOlive: View
 
     private lateinit var btnDayMode: MaterialButton
     private lateinit var btnNightMode: MaterialButton
@@ -21,9 +22,11 @@ class ThemeSettingsActivity : AppCompatActivity() {
     private lateinit var btnFontMono: MaterialButton
     private lateinit var btnCompact: MaterialButton
     private lateinit var btnComfortable: MaterialButton
-    private lateinit var btnHeightShort: MaterialButton
-    private lateinit var btnHeightMedium: MaterialButton
-    private lateinit var btnHeightTall: MaterialButton
+
+    private lateinit var seekKeyboardHeight: SeekBar
+    private lateinit var textKeyboardHeightValue: TextView
+    private lateinit var previewKeyA: TextView
+    private lateinit var previewKeyB: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,7 +36,6 @@ class ThemeSettingsActivity : AppCompatActivity() {
         swatchTeal = findViewById(R.id.swatchTeal)
         swatchGold = findViewById(R.id.swatchGold)
         swatchPurple = findViewById(R.id.swatchPurple)
-        swatchOlive = findViewById(R.id.swatchOlive)
 
         btnDayMode = findViewById(R.id.btnDayMode)
         btnNightMode = findViewById(R.id.btnNightMode)
@@ -42,15 +44,16 @@ class ThemeSettingsActivity : AppCompatActivity() {
         btnFontMono = findViewById(R.id.btnFontMono)
         btnCompact = findViewById(R.id.btnCompact)
         btnComfortable = findViewById(R.id.btnComfortable)
-        btnHeightShort = findViewById(R.id.btnHeightShort)
-        btnHeightMedium = findViewById(R.id.btnHeightMedium)
-        btnHeightTall = findViewById(R.id.btnHeightTall)
+
+        seekKeyboardHeight = findViewById(R.id.seekKeyboardHeight)
+        textKeyboardHeightValue = findViewById(R.id.textKeyboardHeightValue)
+        previewKeyA = findViewById(R.id.previewKeyA)
+        previewKeyB = findViewById(R.id.previewKeyB)
 
         swatchCyan.setOnClickListener { pickAccent(R.color.accent_cyan) }
         swatchTeal.setOnClickListener { pickAccent(R.color.accent_teal) }
         swatchGold.setOnClickListener { pickAccent(R.color.accent_gold) }
         swatchPurple.setOnClickListener { pickAccent(R.color.accent_purple) }
-        swatchOlive.setOnClickListener { pickAccent(R.color.accent_olive) }
 
         btnDayMode.setOnClickListener {
             Prefs.setDarkMode(this, false)
@@ -74,17 +77,40 @@ class ThemeSettingsActivity : AppCompatActivity() {
         btnCompact.setOnClickListener { Prefs.setDensity(this, 1); refreshSelectionState() }
         btnComfortable.setOnClickListener { Prefs.setDensity(this, 0); refreshSelectionState() }
 
-        // Keyboard height: takes effect immediately the next time the
-        // keyboard is shown - SecureInputMethodService reads
-        // Prefs.keyRowHeightDp() fresh every time it builds its view, so
-        // no extra signaling/broadcast is needed between the app and the
-        // input method service.
-        btnHeightShort.setOnClickListener { Prefs.setHeightLevel(this, 0); refreshSelectionState() }
-        btnHeightMedium.setOnClickListener { Prefs.setHeightLevel(this, 1); refreshSelectionState() }
-        btnHeightTall.setOnClickListener { Prefs.setHeightLevel(this, 2); refreshSelectionState() }
+        // Keyboard height: instead of a single hardcoded shorter value,
+        // the user controls it directly with this slider. The keyboard
+        // (SecureInputMethodService) picks up the new value live the
+        // next time it's shown - see onStartInputView there.
+        seekKeyboardHeight.max = Prefs.MAX_KEYBOARD_HEIGHT_DP - Prefs.MIN_KEYBOARD_HEIGHT_DP
+        val currentDp = Prefs.keyboardHeightDp(this)
+        seekKeyboardHeight.progress = currentDp - Prefs.MIN_KEYBOARD_HEIGHT_DP
+        updateHeightPreview(currentDp)
+
+        seekKeyboardHeight.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                val dp = Prefs.MIN_KEYBOARD_HEIGHT_DP + progress
+                Prefs.setKeyboardHeightDp(this@ThemeSettingsActivity, dp)
+                updateHeightPreview(dp)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
 
         applyFontToScreen()
         refreshSelectionState()
+    }
+
+    private fun updateHeightPreview(dp: Int) {
+        textKeyboardHeightValue.text = getString(R.string.keyboard_height_value, dp)
+        val px = (dp * resources.displayMetrics.density).toInt()
+        previewKeyA.layoutParams = previewKeyA.layoutParams.apply { height = px }
+        previewKeyB.layoutParams = previewKeyB.layoutParams.apply { height = px }
+        previewKeyA.requestLayout()
+        previewKeyB.requestLayout()
+        val accent = ThemeUtil.accentColor(this)
+        previewKeyA.background = ThemeUtil.keyBackgroundSelector(this, accented = false)
+        previewKeyB.background = ThemeUtil.keyBackgroundSelector(this, accented = true)
+        previewKeyB.setTextColor(accent)
     }
 
     private fun pickAccent(colorRes: Int) {
@@ -100,9 +126,9 @@ class ThemeSettingsActivity : AppCompatActivity() {
     /**
      * Applies the current accent to every swatch/button on THIS screen too
      * (previously nothing here reflected the chosen accent at all), and
-     * draws a visible border around whichever color/mode/font/density/
-     * height option is currently active, so choices are actually visible
-     * instead of only being saved silently to SharedPreferences.
+     * draws a visible border around whichever color/mode/font/density
+     * option is currently active, so choices are actually visible instead
+     * of only being saved silently to SharedPreferences.
      */
     private fun refreshSelectionState() {
         val accent = ThemeUtil.accentColor(this)
@@ -112,7 +138,6 @@ class ThemeSettingsActivity : AppCompatActivity() {
         ThemeUtil.setSelected(swatchTeal, selectedAccentRes == R.color.accent_teal, accent)
         ThemeUtil.setSelected(swatchGold, selectedAccentRes == R.color.accent_gold, accent)
         ThemeUtil.setSelected(swatchPurple, selectedAccentRes == R.color.accent_purple, accent)
-        ThemeUtil.setSelected(swatchOlive, selectedAccentRes == R.color.accent_olive, accent)
 
         val isDark = Prefs.isDarkMode(this)
         ThemeUtil.setSelected(btnDayMode, !isDark, accent)
@@ -127,9 +152,6 @@ class ThemeSettingsActivity : AppCompatActivity() {
         ThemeUtil.setSelected(btnCompact, density == 1, accent)
         ThemeUtil.setSelected(btnComfortable, density == 0, accent)
 
-        val height = Prefs.heightLevel(this)
-        ThemeUtil.setSelected(btnHeightShort, height == 0, accent)
-        ThemeUtil.setSelected(btnHeightMedium, height == 1, accent)
-        ThemeUtil.setSelected(btnHeightTall, height == 2, accent)
+        updateHeightPreview(Prefs.keyboardHeightDp(this))
     }
 }

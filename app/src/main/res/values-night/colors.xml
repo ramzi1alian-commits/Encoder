@@ -1,19 +1,20 @@
 <resources>
     <!--
-        This is the app's ORIGINAL dark palette, moved here unchanged so it
-        applies specifically to night mode. Before this fix there was no
-        values-night/ directory at all, so "day mode" and "night mode" were
-        visually identical - the toggle changed an internal flag but no
-        resource ever actually switched.
-    -->
-    <color name="navy_950">#0B1120</color>
-    <color name="navy_900">#111827</color>
-    <color name="navy_800">#1E293B</color>
-    <color name="navy_700">#334155</color>
-    <color name="slate_400">#94A3B8</color>
-    <color name="slate_200">#E2E8F0</color>
-    <color name="white">#FFFFFF</color>
+        NIGHT (dark-mode) palette.
 
-    <!-- Key press feedback color (night mode). -->
-    <color name="key_pressed">#334155</color>
+        FIXED IN THIS PASS: the previous dark scale (#0B1120 ... #334155)
+        sat entirely in a narrow, fairly muted mid-tone band, which read
+        as gray/hazy rather than crisp. The background is now pushed
+        closer to true black (more depth/contrast for cards to stand out
+        against), borders/strokes are more saturated blue instead of
+        gray-blue, and the main text color is a crisper near-white
+        instead of a slightly gray off-white.
+    -->
+    <color name="navy_950">#050A14</color>
+    <color name="navy_900">#0C1526</color>
+    <color name="navy_800">#142238</color>
+    <color name="navy_700">#2C4570</color>
+    <color name="slate_400">#93AEDA</color>
+    <color name="slate_200">#F3F8FF</color>
+    <color name="white">#FFFFFF</color>
 </resources>
