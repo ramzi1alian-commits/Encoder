@@ -576,11 +576,17 @@ class EncryptActivity : AppCompatActivity() {
  * button, which has true random entropy, not an estimate.
  */
 object KeyStrength {
-    // 128 bits gives a massive safety margin: even at an extremely
-    // generous 1 trillion guesses/second against Argon2id (far beyond
-    // any realistic hardware, state-level or otherwise), exhausting
-    // half of a 128-bit space takes on the order of 10^18 years.
-    const val MIN_ENTROPY_BITS = 128.0
+    // 256 bits is the TRUE ceiling here, not an arbitrary choice: the
+    // derived AES key itself is exactly 256 bits (see keyLengthBytes = 32
+    // in EncryptActivity), so no amount of password entropy beyond 256
+    // bits can ever be "used" - Argon2id's output is a fixed 256-bit
+    // key regardless of how much entropy goes in. Requiring more than
+    // this would be security theater: the extra entropy has nowhere to
+    // go. 128 bits already exceeds any realistic attacker by a factor of
+    // billions of billions (see README); 256 is the mathematically
+    // maximal, not-wasteful choice for anyone who wants the strictest
+    // number that still means something.
+    const val MIN_ENTROPY_BITS = 256.0
 
     fun estimateEntropyBits(pass: CharArray): Double {
         if (pass.isEmpty()) return 0.0
@@ -618,8 +624,14 @@ object KeyStrength {
 object RandomKey {
     private const val ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 
-    /** 160 bits of real randomness - deliberately not tied to any password or prior ciphertext. */
-    fun generate(byteLength: Int = 20): String {
+    /**
+     * Default raised from 20 to 32 bytes (160 -> 256 bits) to match the
+     * true ceiling explained in KeyStrength: the derived AES key is
+     * exactly 256 bits, so this generates exactly enough real entropy to
+     * saturate it - not less (leaving unused key space) and not more
+     * (which would be wasted, since nothing downstream can use it).
+     */
+    fun generate(byteLength: Int = 32): String {
         val bytes = ByteArray(byteLength).also { SecureRandom().nextBytes(it) }
         val raw = encodeBase32(bytes)
         return raw.chunked(5).joinToString("-")
