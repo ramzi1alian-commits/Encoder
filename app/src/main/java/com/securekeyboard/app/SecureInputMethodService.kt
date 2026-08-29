@@ -54,6 +54,20 @@ class SecureInputMethodService : InputMethodService() {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(resources.getColor(R.color.navy_950, theme))
             setPadding(6, 10, 6, 10)
+            // BUG FIX: a keyboard's key ROWS must keep a fixed physical
+            // left-to-right order regardless of the device's RTL/LTR
+            // locale - the key layout is authored to match how a real
+            // keyboard is laid out, not "start/end" text-flow semantics.
+            // After adding android:supportsRtl="true" to the manifest
+            // (a correct fix for the rest of the app's Arabic UI), Android
+            // began auto-mirroring every plain horizontal LinearLayout on
+            // this Arabic-locale device, which visually reversed every row
+            // of keys even though the row arrays in code never changed.
+            // Forcing LAYOUT_DIRECTION_LTR on the root view (inherited by
+            // every row added below, since none of them override it)
+            // pins the keyboard's own layout to a fixed physical order
+            // while leaving RTL mirroring intact for the rest of the app.
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
         }
 
         val rows = listOf(
