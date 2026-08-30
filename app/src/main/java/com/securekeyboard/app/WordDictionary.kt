@@ -23,10 +23,13 @@ import java.io.InputStreamReader
  *   in-memory StringBuilder cleared on space/enter/field switch - not a
  *   history, and never written to storage.
  *
- * Source data: CAMeL Arabic Frequency Lists (Classical Arabic variety),
- * filtered to Arabic-script-only tokens and the ~40,000 most frequent
- * word types, with raw corpus counts rescaled to a 1-255 popularity
- * score (same convention Android's own AOSP dictionaries use).
+ * Source data: CAMeL Arabic Frequency Lists (Classical Arabic variety) as
+ * a base, merged with word-frequency counts from a public Arabic news
+ * corpus (~75K additional Arabic-script word types), so contemporary news
+ * vocabulary is covered alongside the classical base list. Words present
+ * in both sources get a small confidence boost. Raw counts are rescaled
+ * to a 1-255 popularity score (same convention Android's own AOSP
+ * dictionaries use).
  */
 object WordDictionary {
 

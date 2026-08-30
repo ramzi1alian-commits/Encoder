@@ -57,11 +57,15 @@ import android.widget.TextView
  * hardcoded guess - controls how tall the keys are.
  *
  * WORD SUGGESTIONS - how this fits the privacy guarantees above:
- * A suggestion strip was added above the key rows, backed by a fixed,
- * read-only, bundled-in-the-APK Arabic word list (see WordDictionary.kt).
- * On top of that, THIS APP'S OWN sensitive fields (and any other app's
- * field marked the same way) get a stricter guarantee than the rest of
- * the device - see the split below.
+ * A suggestion strip was added above the key rows, backed by two fixed,
+ * read-only, bundled-in-the-APK data files derived from a public Arabic
+ * news corpus: a word-frequency list for prefix completion (see
+ * WordDictionary.kt) and a word-pair list for NEXT-word prediction - the
+ * instant a word is finished, likely following words are offered before
+ * anything of the next word is typed (see NextWordDictionary.kt). On top
+ * of that, THIS APP'S OWN sensitive fields (and any other app's field
+ * marked the same way) get a stricter guarantee than the rest of the
+ * device - see the split below.
  *
  * ⚠️ IMPORTANT UPDATE - guarantee #1 above is now SCOPED, not global:
  *
@@ -196,6 +200,13 @@ class SecureInputMethodService : InputMethodService() {
     // and it never outlives the current word/field/session.
     private val currentWord = StringBuilder()
     private var suggestionsEnabled = false
+
+    // In-memory only, same lifetime/rules as currentWord above: the single
+    // most recently FINISHED word (via space, enter, or tapping a
+    // suggestion), kept purely so NextWordDictionary can offer likely next
+    // words the instant a new word starts - never written to disk, never
+    // part of any log, cleared alongside currentWord on field switch.
+    private var lastFinishedWord: String? = null
     private var suggestionBar: LinearLayout? = null
 
     private fun dpToPx(dp: Float): Int =
@@ -219,6 +230,7 @@ class SecureInputMethodService : InputMethodService() {
         // (empty until words get learned in a non-sensitive field - see
         // class doc above and LearnedDictionary.kt).
         WordDictionary.preload(this)
+        NextWordDictionary.preload(this)
         LearnedDictionary.preload(this)
         PhraseDictionary.preload(this)
 
@@ -323,6 +335,7 @@ class SecureInputMethodService : InputMethodService() {
             if (suggestionsEnabled && finishedWord.isNotEmpty()) {
                 LearnedDictionary.learn(this@SecureInputMethodService, finishedWord)
             }
+            lastFinishedWord = if (suggestionsEnabled && finishedWord.isNotEmpty()) finishedWord else null
             currentWord.clear()
             updateSuggestions()
         })
@@ -334,6 +347,7 @@ class SecureInputMethodService : InputMethodService() {
             // that was already finished. Re-deriving from the field
             // instead brings that whole word back, exactly as it was
             // typed - see resyncCurrentWordFromField().
+            lastFinishedWord = null
             resyncCurrentWordFromField()
         })
         bottomRow.addView(makeKey("إدخال", weight = 1.5f, heightDp = heightDp, accented = true) {
@@ -354,6 +368,9 @@ class SecureInputMethodService : InputMethodService() {
                 if (finishedLine.isNotEmpty()) {
                     PhraseDictionary.learn(this@SecureInputMethodService, finishedLine)
                 }
+                lastFinishedWord = if (finishedWord.isNotEmpty()) finishedWord else null
+            } else {
+                lastFinishedWord = null
             }
             currentWord.clear()
             updateSuggestions()
@@ -660,6 +677,7 @@ class SecureInputMethodService : InputMethodService() {
         // Switching into (or back to) a field always starts with a clean
         // word buffer, never whatever was being typed in a previous field.
         currentWord.clear()
+        lastFinishedWord = null
 
         // Suggestions are opt-OUT per field, driven entirely by what the
         // app being typed into declares - never by anything this keyboard
@@ -721,6 +739,7 @@ class SecureInputMethodService : InputMethodService() {
         // Leaving the field entirely - drop the in-progress word rather
         // than let it linger in memory for a session that's now over.
         currentWord.clear()
+        lastFinishedWord = null
         updateSuggestions()
         // Cancel any in-flight long-press/tatweel-repeat timer so it
         // can't fire against a key view that's about to be torn down.
@@ -737,14 +756,25 @@ class SecureInputMethodService : InputMethodService() {
         val bar = suggestionBar ?: return
         bar.removeAllViews()
 
-        if (!suggestionsEnabled || currentWord.isEmpty()) {
+        if (!suggestionsEnabled) {
             // INVISIBLE, not GONE: keeps the bar's space reserved so the
             // key rows below never jump as suggestions come and go.
             bar.visibility = View.INVISIBLE
             return
         }
 
-        val suggestions = mergedSuggestions(currentWord.toString())
+        val suggestions = if (currentWord.isEmpty()) {
+            // Nothing typed yet for the new word - if a word was just
+            // finished (space/enter/tap), offer likely NEXT words instead
+            // of leaving the bar empty. This is what makes the keyboard
+            // predict ahead rather than only completing what's typed.
+            lastFinishedWord?.let { prev ->
+                NextWordDictionary.suggestionsFor(prev).map { Suggestion(it, isPhrase = false) }
+            } ?: emptyList()
+        } else {
+            mergedSuggestions(currentWord.toString())
+        }
+
         if (suggestions.isEmpty()) {
             bar.visibility = View.INVISIBLE
             return
@@ -789,6 +819,15 @@ class SecureInputMethodService : InputMethodService() {
                             LearnedDictionary.learn(this@SecureInputMethodService, suggestion.display)
                         }
                     }
+                    // A tapped chip finishes a word exactly like typing a
+                    // space would, so the word just committed becomes the
+                    // context for the NEXT round of (next-word) suggestions.
+                    // A tapped whole PHRASE ends the line's train of thought
+                    // rather than a single word, so it doesn't set up a
+                    // next-word context the same way.
+                    lastFinishedWord = if (suggestionsEnabled && !suggestion.isPhrase) {
+                        suggestion.display.substringAfterLast(' ')
+                    } else null
                     currentWord.clear()
                     updateSuggestions()
                 }
