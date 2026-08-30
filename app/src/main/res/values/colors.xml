@@ -9,10 +9,19 @@
         true black/white for sharp contrast - the "high-contrast" part of
         pass B without the "electric" part.
     -->
-    <color name="navy_950">#F6F8FB</color>
+    <!--
+        v4 - "modern" pass requested by user feedback: the old palette
+        (near-white on near-white, 8-10dp corners, flat single-tone keys)
+        read as flat/dated. This keeps the same light, high-contrast
+        family but gives the keyboard surface a visibly darker base than
+        the keys, so keys read as raised cards (paired with real
+        View.elevation in ThemeUtil.keyShape) instead of a flat sheet of
+        near-identical grays - closer to a modern Gboard/iOS light theme.
+    -->
+    <color name="navy_950">#E7ECF4</color>
     <color name="navy_900">#FFFFFF</color>
-    <color name="navy_800">#EBF0F7</color>
-    <color name="navy_700">#CBD8E8</color>
+    <color name="navy_800">#F1F4F9</color>
+    <color name="navy_700">#D7DFEC</color>
     <color name="slate_400">#55647A</color>
     <color name="slate_200">#131A26</color>
     <color name="white">#0B0F17</color>

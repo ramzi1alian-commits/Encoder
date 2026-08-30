@@ -1,14 +1,19 @@
 package com.securekeyboard.app
 
+import android.graphics.Color
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
+import android.os.Handler
+import android.os.Looper
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 
 /**
@@ -79,8 +84,48 @@ import android.widget.TextView
  *   anywhere in the app; never full messages, only individual words with
  *   a typed-count; excluded from Android backups like the rest of this
  *   app's data; user-clearable anytime from Settings).
+ *
+ * FIXED IN THIS VERSION - suggestion bar layout jump: the suggestion
+ * strip used to be View.GONE when there was nothing to suggest, which
+ * removes it from the layout entirely and makes every row of keys below
+ * it jump up/down as the user types (bar appears/disappears). It now
+ * uses View.INVISIBLE instead, which keeps its height permanently
+ * reserved in the layout - the keys never move, whether or not
+ * suggestions are currently showing.
+ *
+ * ADDED IN THIS VERSION - two long-press behaviors, neither of which
+ * changes any key's position in its row:
+ * 1. Hamza popup on ا: long-pressing ا (and dragging, like a normal
+ *    Android popup key) picks between ا / أ / إ / آ - the hamza forms
+ *    that were missing before. See [LETTER_VARIANTS], [showVariantPopup].
+ * 2. Tatweel (kashida, "ـ") hold-to-extend: holding down any other
+ *    letter key (instead of a quick tap) repeatedly inserts the ـ
+ *    elongation character instead of repeating the letter, so the user
+ *    can stretch a word for emphasis/calligraphic effect. A quick tap
+ *    still always just types the letter as before.
  */
 class SecureInputMethodService : InputMethodService() {
+
+    companion object {
+        // Time the user has to hold a key before it's treated as a
+        // long-press (popup or tatweel-extend) instead of a normal tap.
+        private const val LONG_PRESS_MS = 320L
+        // How often ـ is inserted while a tatweel-extend key is held.
+        private const val TATWEEL_REPEAT_MS = 110L
+
+        // Keys that get a hamza-forms popup on long-press instead of the
+        // tatweel-extend behavior. Order here is left-to-right in the
+        // popup, matching the LTR row direction used for the key rows.
+        private val LETTER_VARIANTS = mapOf(
+            "ا" to listOf("ا", "أ", "إ", "آ")
+        )
+    }
+
+    // Single Handler for every key's long-press/repeat timers. Each
+    // posted Runnable is stored on that key's own local variables (see
+    // makeKey) and removed by reference (never by clearing everything),
+    // so one key's timer can never cancel another key's.
+    private val longPressHandler = Handler(Looper.getMainLooper())
 
     // Tracks which settings were baked into the currently-built view, so
     // onStartInputView can detect "the user changed something in
@@ -153,7 +198,10 @@ class SecureInputMethodService : InputMethodService() {
         val bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            visibility = View.GONE
+            // INVISIBLE (not GONE): the bar's height stays reserved in
+            // the layout at all times, so the key rows below it never
+            // shift up/down as suggestions come and go while typing.
+            visibility = View.INVISIBLE
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dpToPx((heightDp * 0.72f))
@@ -178,16 +226,24 @@ class SecureInputMethodService : InputMethodService() {
                 orientation = LinearLayout.HORIZONTAL
             }
             for (ch in row.split(" ")) {
+                val variants = LETTER_VARIANTS[ch]
                 rowLayout.addView(
-                    makeKey(ch, heightDp = heightDp) {
-                        currentInputConnection?.commitText(ch, 1)
+                    makeKey(
+                        ch,
+                        heightDp = heightDp,
+                        variants = variants,
+                        // Only letters WITHOUT a hamza popup get the
+                        // tatweel hold-to-extend behavior, so a long
+                        // press on ا always means "show me the hamza
+                        // forms", never "start inserting ـ".
+                        tatweelExtend = variants == null
+                    ) {
                         // Arabic letters only ever reach this branch (the
                         // number row and action keys use their own
                         // onClick above/below and never touch
                         // currentWord), so it's safe to always treat a
                         // key here as "extends the current word".
-                        currentWord.append(ch)
-                        updateSuggestions()
+                        commitLetter(ch)
                     }
                 )
             }
@@ -240,6 +296,8 @@ class SecureInputMethodService : InputMethodService() {
         weight: Float = 1f,
         heightDp: Int = Prefs.DEFAULT_KEYBOARD_HEIGHT_DP,
         accented: Boolean = false,
+        variants: List<String>? = null,
+        tatweelExtend: Boolean = false,
         onClick: (() -> Unit)? = null
     ): TextView {
         return TextView(this).apply {
@@ -266,6 +324,11 @@ class SecureInputMethodService : InputMethodService() {
                 else resources.getColor(R.color.slate_200, theme)
             )
             background = ThemeUtil.keyBackgroundSelector(this@SecureInputMethodService, accented)
+            // Real elevation (not a drawn trick) so the key reads as a
+            // raised card over the darker keyboard surface - part of the
+            // "modern, not flat" visual refresh. Dropped briefly on
+            // press for tactile feedback, see the touch listener below.
+            ThemeUtil.applyPressedElevation(this, pressed = false)
             isClickable = true
             isFocusable = true
             // dp -> px conversion is what makes this consistent across
@@ -274,10 +337,182 @@ class SecureInputMethodService : InputMethodService() {
             val marginPx = dpToPx(2f)
             lp.setMargins(marginPx, marginPx, marginPx, marginPx)
             layoutParams = lp
-            setOnClickListener {
-                // Text goes directly to the focused field. Nothing here
-                // is retained, logged, or queued anywhere else.
-                onClick?.invoke() ?: currentInputConnection?.commitText(label, 1)
+
+            // Per-key gesture state. These are local vars captured by the
+            // touch listener closure below, so each key gets its own
+            // independent state (never shared across keys) even though
+            // they all post to the single shared longPressHandler.
+            var pendingLongPress: Runnable? = null
+            var popup: PopupWindow? = null
+            var popupContent: LinearLayout? = null
+            var selectedVariantIndex = 0
+            var isTatweelRepeating = false
+
+            setOnTouchListener { v, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        v.isPressed = true
+                        ThemeUtil.applyPressedElevation(v, pressed = true)
+                        isTatweelRepeating = false
+                        selectedVariantIndex = 0
+                        when {
+                            variants != null -> {
+                                val r = Runnable {
+                                    val (pw, content) = showVariantPopup(v, variants)
+                                    popup = pw
+                                    popupContent = content
+                                    highlightVariantChip(content, 0)
+                                }
+                                pendingLongPress = r
+                                longPressHandler.postDelayed(r, LONG_PRESS_MS)
+                            }
+                            tatweelExtend -> {
+                                lateinit var repeatRunnable: Runnable
+                                repeatRunnable = Runnable {
+                                    isTatweelRepeating = true
+                                    currentInputConnection?.commitText("ـ", 1)
+                                    longPressHandler.postDelayed(repeatRunnable, TATWEEL_REPEAT_MS)
+                                }
+                                pendingLongPress = repeatRunnable
+                                longPressHandler.postDelayed(repeatRunnable, LONG_PRESS_MS)
+                            }
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val content = popupContent
+                        if (content != null) {
+                            selectedVariantIndex = variantIndexForRawX(content, variants?.size ?: 1, event.rawX)
+                            highlightVariantChip(content, selectedVariantIndex)
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        v.isPressed = false
+                        ThemeUtil.applyPressedElevation(v, pressed = false)
+                        pendingLongPress?.let { longPressHandler.removeCallbacks(it) }
+                        pendingLongPress = null
+                        val pw = popup
+                        when {
+                            pw != null -> {
+                                // Popup was showing: commit whichever
+                                // variant is currently highlighted (drag
+                                // to change it before lifting, exactly
+                                // like Gboard's accent popups).
+                                val chosen = variants?.getOrElse(selectedVariantIndex) { label } ?: label
+                                commitLetter(chosen)
+                                pw.dismiss()
+                                popup = null
+                                popupContent = null
+                            }
+                            isTatweelRepeating -> {
+                                // The hold-repeat already inserted ـ
+                                // characters directly; nothing left to
+                                // commit on release.
+                                isTatweelRepeating = false
+                            }
+                            else -> {
+                                // Normal short tap - unchanged behavior:
+                                // letter rows pass their own onClick
+                                // (which calls commitLetter to also track
+                                // the word for suggestions); keys with no
+                                // onClick (number row) just plain-commit,
+                                // exactly like before this change.
+                                onClick?.invoke() ?: currentInputConnection?.commitText(label, 1)
+                            }
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_CANCEL -> {
+                        v.isPressed = false
+                        ThemeUtil.applyPressedElevation(v, pressed = false)
+                        pendingLongPress?.let { longPressHandler.removeCallbacks(it) }
+                        pendingLongPress = null
+                        popup?.dismiss()
+                        popup = null
+                        popupContent = null
+                        isTatweelRepeating = false
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }
+    }
+
+    /**
+     * Commits a single letter/variant to the field AND treats it as
+     * extending the current word for suggestion purposes - the same
+     * bookkeeping every plain letter key did before, now shared by both
+     * a normal tap and a hamza-variant popup selection.
+     */
+    private fun commitLetter(ch: String) {
+        currentInputConnection?.commitText(ch, 1)
+        currentWord.append(ch)
+        updateSuggestions()
+    }
+
+    /**
+     * Builds and shows the small horizontal popup of variant letters
+     * above [anchor] (e.g. ا / أ / إ / آ above the ا key). The popup is
+     * non-touchable itself - the anchor key keeps receiving the same
+     * touch gesture (ACTION_MOVE/UP) for as long as the finger is down,
+     * which is what lets the caller do drag-to-select against it.
+     */
+    private fun showVariantPopup(anchor: View, variants: List<String>): Pair<PopupWindow, LinearLayout> {
+        val chipSizePx = dpToPx(42f)
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            background = ThemeUtil.keyBackgroundSelector(this@SecureInputMethodService, accented = false)
+            elevation = dpToPx(6f).toFloat()
+            setPadding(dpToPx(3f), dpToPx(3f), dpToPx(3f), dpToPx(3f))
+            for (v in variants) {
+                addView(TextView(this@SecureInputMethodService).apply {
+                    text = v
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+                    gravity = Gravity.CENTER
+                    includeFontPadding = false
+                    typeface = Typeface.create(Fonts.currentTypeface(this@SecureInputMethodService), Typeface.NORMAL)
+                    layoutParams = LinearLayout.LayoutParams(chipSizePx, chipSizePx)
+                })
+            }
+        }
+
+        val popup = PopupWindow(content, LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT, false)
+        popup.isTouchable = false
+        popup.isClippingEnabled = false
+
+        val widthSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        content.measure(widthSpec, widthSpec)
+        val loc = IntArray(2)
+        anchor.getLocationOnScreen(loc)
+        val xOff = loc[0] + anchor.width / 2 - content.measuredWidth / 2
+        val yOff = loc[1] - content.measuredHeight - dpToPx(4f)
+        popup.showAtLocation(anchor, Gravity.NO_GRAVITY, xOff, yOff)
+        return Pair(popup, content)
+    }
+
+    /** Finds which chip in an already-shown variant popup a raw (screen) x-coordinate is over. */
+    private fun variantIndexForRawX(content: LinearLayout, count: Int, rawX: Float): Int {
+        if (content.childCount == 0 || count <= 0) return 0
+        val loc = IntArray(2)
+        content.getLocationOnScreen(loc)
+        val localX = rawX - loc[0]
+        val childWidth = content.getChildAt(0).width.takeIf { it > 0 } ?: 1
+        return (localX / childWidth).toInt().coerceIn(0, count - 1)
+    }
+
+    /** Visually marks the currently drag-selected chip in a variant popup with the accent color. */
+    private fun highlightVariantChip(content: LinearLayout, selected: Int) {
+        for (i in 0 until content.childCount) {
+            val chip = content.getChildAt(i) as? TextView ?: continue
+            if (i == selected) {
+                chip.setBackgroundColor(ThemeUtil.accentColor(this))
+                chip.setTextColor(resources.getColor(R.color.text_on_accent, theme))
+            } else {
+                chip.setBackgroundColor(Color.TRANSPARENT)
+                chip.setTextColor(resources.getColor(R.color.slate_200, theme))
             }
         }
     }
@@ -322,6 +557,9 @@ class SecureInputMethodService : InputMethodService() {
         // than let it linger in memory for a session that's now over.
         currentWord.clear()
         updateSuggestions()
+        // Cancel any in-flight long-press/tatweel-repeat timer so it
+        // can't fire against a key view that's about to be torn down.
+        longPressHandler.removeCallbacksAndMessages(null)
     }
 
     /**
@@ -335,13 +573,15 @@ class SecureInputMethodService : InputMethodService() {
         bar.removeAllViews()
 
         if (!suggestionsEnabled || currentWord.isEmpty()) {
-            bar.visibility = View.GONE
+            // INVISIBLE, not GONE: keeps the bar's space reserved so the
+            // key rows below never jump as suggestions come and go.
+            bar.visibility = View.INVISIBLE
             return
         }
 
         val words = mergedSuggestions(currentWord.toString())
         if (words.isEmpty()) {
-            bar.visibility = View.GONE
+            bar.visibility = View.INVISIBLE
             return
         }
 
@@ -354,7 +594,7 @@ class SecureInputMethodService : InputMethodService() {
                 includeFontPadding = false
                 typeface = Typeface.create(Fonts.currentTypeface(this@SecureInputMethodService), Typeface.NORMAL)
                 setTextColor(resources.getColor(R.color.slate_200, theme))
-                background = ThemeUtil.keyBackgroundSelector(this@SecureInputMethodService, accented = false)
+                background = ThemeUtil.suggestionChipBackground(this@SecureInputMethodService)
                 isClickable = true
                 isFocusable = true
                 val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)

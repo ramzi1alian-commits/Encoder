@@ -235,6 +235,25 @@ object ThemeUtil {
     }
 
     /**
+     * Corner radius used for every key / chip surface. Bumped from the
+     * old 10dp to 16dp as part of the "modern, not 80s" visual refresh -
+     * softer, more rounded corners read as current-generation UI instead
+     * of the sharper/flatter look of the previous pass.
+     */
+    private const val KEY_CORNER_RADIUS_DP = 16f
+
+    /**
+     * Elevation (real View.elevation, not a drawn gradient trick) applied
+     * to each key so it reads as a raised card floating over the darker
+     * keyboard surface (see keyboardBackground) - this is the main thing
+     * that was missing before and made the keyboard look flat/dated. Key
+     * presses drop to a lower elevation (see applyPressedElevation) to
+     * sell a tactile "push down" on touch.
+     */
+    const val KEY_ELEVATION_DP = 2.5f
+    const val KEY_ELEVATION_PRESSED_DP = 0.5f
+
+    /**
      * Professional-looking keyboard key background: a subtle vertical
      * gradient (instead of a flat single color) with a thin border, built
      * as a proper pressed/normal state-list so keys give visual feedback
@@ -252,15 +271,19 @@ object ThemeUtil {
     private fun keyShape(context: Context, pressed: Boolean, accented: Boolean): GradientDrawable {
         val density = context.resources.displayMetrics.density
         val bg = GradientDrawable()
-        bg.cornerRadius = 10f * density
+        bg.cornerRadius = KEY_CORNER_RADIUS_DP * density
         bg.orientation = GradientDrawable.Orientation.TOP_BOTTOM
         if (pressed) {
             val pressedColor = ContextCompat.getColor(context, R.color.navy_700)
             bg.colors = intArrayOf(pressedColor, pressedColor)
         } else {
+            // White-to-very-light-gray top-to-bottom gradient, on top of
+            // the darker keyboard surface color (navy_950) - this
+            // contrast (rather than the old near-identical whites) plus
+            // real elevation is what makes the key read as a raised card.
             bg.colors = intArrayOf(
-                ContextCompat.getColor(context, R.color.navy_800),
-                ContextCompat.getColor(context, R.color.navy_900)
+                ContextCompat.getColor(context, R.color.navy_900),
+                ContextCompat.getColor(context, R.color.navy_800)
             )
         }
         val strokeColor = if (accented) accentColor(context) else ContextCompat.getColor(context, R.color.navy_700)
@@ -269,15 +292,39 @@ object ThemeUtil {
         return bg
     }
 
-    /** Subtle vertical gradient for the whole keyboard surface instead of a flat fill. */
-    fun keyboardBackground(context: Context): Drawable {
-        val bg = GradientDrawable(
-            GradientDrawable.Orientation.TOP_BOTTOM,
-            intArrayOf(
-                ContextCompat.getColor(context, R.color.navy_900),
-                ContextCompat.getColor(context, R.color.navy_950)
-            )
+    /**
+     * Pill-shaped background (state-list, so tapping still gives visual
+     * feedback exactly like a key) for suggestion-strip chips - fully
+     * rounded rather than the boxier key corner radius, matching the
+     * rounded "chip" look of modern keyboard suggestion bars.
+     */
+    fun suggestionChipBackground(context: Context): Drawable {
+        val states = StateListDrawable()
+        states.addState(intArrayOf(android.R.attr.state_pressed), pillShape(context, pressed = true))
+        states.addState(intArrayOf(), pillShape(context, pressed = false))
+        return states
+    }
+
+    private fun pillShape(context: Context, pressed: Boolean): GradientDrawable {
+        val density = context.resources.displayMetrics.density
+        val bg = GradientDrawable()
+        bg.cornerRadius = 999f * density // large enough to always render as a full pill
+        bg.setColor(
+            ContextCompat.getColor(context, if (pressed) R.color.navy_700 else R.color.navy_800)
         )
+        return bg
+    }
+
+    /** Applies (or removes) the "pressed" elevation drop for tactile feedback on touch. */
+    fun applyPressedElevation(view: android.view.View, pressed: Boolean) {
+        val density = view.resources.displayMetrics.density
+        view.elevation = (if (pressed) KEY_ELEVATION_PRESSED_DP else KEY_ELEVATION_DP) * density
+    }
+
+    /** Flat, slightly darker fill for the whole keyboard surface so raised keys have contrast to sit on. */
+    fun keyboardBackground(context: Context): Drawable {
+        val bg = GradientDrawable()
+        bg.setColor(ContextCompat.getColor(context, R.color.navy_950))
         return bg
     }
 }
