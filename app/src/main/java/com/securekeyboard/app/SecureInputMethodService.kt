@@ -1,5 +1,6 @@
 package com.securekeyboard.app
 
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
@@ -103,6 +104,14 @@ import android.widget.TextView
  *    elongation character instead of repeating the letter, so the user
  *    can stretch a word for emphasis/calligraphic effect. A quick tap
  *    still always just types the letter as before.
+ *
+ * FIXED IN THIS VERSION - dark mode never visibly applied: this view is
+ * only ever built once per keyboard session, so its colors (from
+ * res/values/colors.xml or res/values-night/colors.xml) were resolved
+ * once and never re-resolved when the system's dark/light mode changed
+ * afterwards. See [appliedNightMode], [onConfigurationChanged], and the
+ * extra check added to onStartInputView - the view now rebuilds itself
+ * whenever night mode differs from what's currently applied.
  */
 class SecureInputMethodService : InputMethodService() {
 
@@ -134,6 +143,18 @@ class SecureInputMethodService : InputMethodService() {
     // accent-color change to take effect.
     private var appliedHeightDp = -1
     private var appliedAccentRes = -1
+    // FIXED IN THIS VERSION: the keyboard's colors come from
+    // res/values/colors.xml vs res/values-night/colors.xml, which
+    // Android is supposed to switch between automatically based on
+    // system dark/light mode - but this view is only ever BUILT once
+    // (onCreateInputView) and its drawables/colors are resolved to
+    // fixed values at that moment, not re-resolved live. Without this
+    // tracked value, switching system dark mode while (or before) this
+    // keyboard is showing had no visible effect until the whole app was
+    // killed and restarted. See onConfigurationChanged and the extra
+    // check in onStartInputView below - both now rebuild the view
+    // whenever the current night-mode bits differ from what's applied.
+    private var appliedNightMode = -1
 
     // In-memory only, cleared aggressively (see class doc above). This
     // is intentionally the ONLY typed-content state this class keeps,
@@ -156,6 +177,7 @@ class SecureInputMethodService : InputMethodService() {
         val heightDp = Prefs.keyboardHeightDp(this)
         appliedHeightDp = heightDp
         appliedAccentRes = Prefs.accentColorRes(this)
+        appliedNightMode = currentNightMode()
 
         // Kick off (or no-op if already done) the background load of the
         // bundled static word list AND the user's own learned-words file
@@ -541,12 +563,32 @@ class SecureInputMethodService : InputMethodService() {
         suggestionsEnabled = isTextClass && !isPassword && !noSuggestionsFlag
         updateSuggestions()
 
-        // Live-apply a height or accent-color change made in Settings
+        // Live-apply a height, accent-color, or day/night change made
         // since this keyboard view was last built, without requiring the
         // user to force-stop/restart the app for it to take effect.
         val currentHeight = Prefs.keyboardHeightDp(this)
         val currentAccent = Prefs.accentColorRes(this)
-        if (currentHeight != appliedHeightDp || currentAccent != appliedAccentRes) {
+        val nightMode = currentNightMode()
+        if (currentHeight != appliedHeightDp || currentAccent != appliedAccentRes || nightMode != appliedNightMode) {
+            setInputView(onCreateInputView())
+        }
+    }
+
+    /** Extracts just the day/night bits from the current configuration's uiMode. */
+    private fun currentNightMode(): Int =
+        resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+
+    /**
+     * Catches the case where the system's dark/light mode is toggled
+     * WHILE this keyboard is already on screen (not just next time a
+     * field is focused, which onStartInputView already covers) - without
+     * this, a live toggle would show no visible effect until the
+     * keyboard was hidden and shown again.
+     */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val nightMode = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
+        if (nightMode != appliedNightMode && isInputViewShown) {
             setInputView(onCreateInputView())
         }
     }

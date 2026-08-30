@@ -235,12 +235,13 @@ object ThemeUtil {
     }
 
     /**
-     * Corner radius used for every key / chip surface. Bumped from the
-     * old 10dp to 16dp as part of the "modern, not 80s" visual refresh -
-     * softer, more rounded corners read as current-generation UI instead
-     * of the sharper/flatter look of the previous pass.
+     * Corner radius used for every key / chip surface. Reverted back to
+     * the original 10dp square-ish look per user feedback - the rounder
+     * 16dp pass this went through briefly is gone; everything else from
+     * that visual refresh (elevation, palette, pill suggestion chips)
+     * stays.
      */
-    private const val KEY_CORNER_RADIUS_DP = 16f
+    private const val KEY_CORNER_RADIUS_DP = 10f
 
     /**
      * Elevation (real View.elevation, not a drawn gradient trick) applied
