@@ -2,6 +2,7 @@ package com.securekeyboard.app
 
 import android.graphics.Typeface
 import android.inputmethodservice.InputMethodService
+import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -48,6 +49,36 @@ import android.widget.TextView
  * from a user-adjustable preference (Settings > keyboard height), so it
  * looks consistent across devices and the user - not a one-time
  * hardcoded guess - controls how tall the keys are.
+ *
+ * WORD SUGGESTIONS - how this fits the privacy guarantees above:
+ * A suggestion strip was added above the key rows, backed by a fixed,
+ * read-only, bundled-in-the-APK Arabic word list (see WordDictionary.kt).
+ * On top of that, THIS APP'S OWN sensitive fields (and any other app's
+ * field marked the same way) get a stricter guarantee than the rest of
+ * the device - see the split below.
+ *
+ * ⚠️ IMPORTANT UPDATE - guarantee #1 above is now SCOPED, not global:
+ *
+ * - IN A FIELD MARKED SENSITIVE (password type, or
+ *   TYPE_TEXT_FLAG_NO_SUGGESTIONS - this includes this app's own
+ *   EncryptActivity message/key fields, see activity_encrypt.xml):
+ *   guarantee #1 still holds EXACTLY as before. No suggestions are
+ *   shown, nothing typed there is added to any dictionary, and the only
+ *   state kept is the transient [currentWord] buffer, cleared
+ *   immediately on space/enter/field-switch/keyboard-hide.
+ *
+ * - IN ANY OTHER FIELD (i.e. normal typing in any other app, since this
+ *   is installable as the device's system keyboard): completed words
+ *   (on space/enter/tapped suggestion) are now saved to a small
+ *   per-device, per-word frequency file (see LearnedDictionary.kt) so
+ *   suggestions improve based on the user's own vocabulary over time.
+ *   This is real, new, on-device storage of individual words typed
+ *   outside this app's own sensitive screens - read LearnedDictionary.kt's
+ *   class doc for the full, honest scope of what that does and does not
+ *   mean (never transmitted anywhere - still no INTERNET permission
+ *   anywhere in the app; never full messages, only individual words with
+ *   a typed-count; excluded from Android backups like the rest of this
+ *   app's data; user-clearable anytime from Settings).
  */
 class SecureInputMethodService : InputMethodService() {
 
@@ -58,6 +89,13 @@ class SecureInputMethodService : InputMethodService() {
     // accent-color change to take effect.
     private var appliedHeightDp = -1
     private var appliedAccentRes = -1
+
+    // In-memory only, cleared aggressively (see class doc above). This
+    // is intentionally the ONLY typed-content state this class keeps,
+    // and it never outlives the current word/field/session.
+    private val currentWord = StringBuilder()
+    private var suggestionsEnabled = false
+    private var suggestionBar: LinearLayout? = null
 
     private fun dpToPx(dp: Float): Int =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dp, resources.displayMetrics).toInt()
@@ -73,6 +111,13 @@ class SecureInputMethodService : InputMethodService() {
         val heightDp = Prefs.keyboardHeightDp(this)
         appliedHeightDp = heightDp
         appliedAccentRes = Prefs.accentColorRes(this)
+
+        // Kick off (or no-op if already done) the background load of the
+        // bundled static word list AND the user's own learned-words file
+        // (empty until words get learned in a non-sensitive field - see
+        // class doc above and LearnedDictionary.kt).
+        WordDictionary.preload(this)
+        LearnedDictionary.preload(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -101,6 +146,24 @@ class SecureInputMethodService : InputMethodService() {
             "ئ ء ؤ ر لا ى ة و ز ظ"
         )
 
+        // Suggestion strip: built once here, populated/hidden dynamically
+        // by updateSuggestions() as the user types. Height is a fixed,
+        // modest fraction of the key height so it doesn't dominate the
+        // keyboard on short screens.
+        val bar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            visibility = View.GONE
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx((heightDp * 0.72f))
+            )
+            lp.setMargins(0, 0, 0, dpToPx(3f))
+            layoutParams = lp
+        }
+        suggestionBar = bar
+        root.addView(bar)
+
         val numberRow = "1 2 3 4 5 6 7 8 9 0".split(" ")
         val numberLayout = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -115,7 +178,18 @@ class SecureInputMethodService : InputMethodService() {
                 orientation = LinearLayout.HORIZONTAL
             }
             for (ch in row.split(" ")) {
-                rowLayout.addView(makeKey(ch, heightDp = heightDp))
+                rowLayout.addView(
+                    makeKey(ch, heightDp = heightDp) {
+                        currentInputConnection?.commitText(ch, 1)
+                        // Arabic letters only ever reach this branch (the
+                        // number row and action keys use their own
+                        // onClick above/below and never touch
+                        // currentWord), so it's safe to always treat a
+                        // key here as "extends the current word".
+                        currentWord.append(ch)
+                        updateSuggestions()
+                    }
+                )
             }
             root.addView(rowLayout)
         }
@@ -124,15 +198,37 @@ class SecureInputMethodService : InputMethodService() {
             orientation = LinearLayout.HORIZONTAL
         }
         bottomRow.addView(makeKey("مسافة", weight = 4f, heightDp = heightDp, accented = true) {
+            val finishedWord = currentWord.toString()
             currentInputConnection?.commitText(" ", 1)
+            // A finished word: in a sensitive field this just clears the
+            // buffer (old behavior, unchanged). In any other field, it's
+            // also handed to LearnedDictionary so future suggestions in
+            // THIS user's own vocabulary improve - see the class doc at
+            // the top of this file and LearnedDictionary.kt for exactly
+            // what that does and doesn't store.
+            if (suggestionsEnabled && finishedWord.isNotEmpty()) {
+                LearnedDictionary.learn(this@SecureInputMethodService, finishedWord)
+            }
+            currentWord.clear()
+            updateSuggestions()
         })
         bottomRow.addView(makeKey("حذف", weight = 1.5f, heightDp = heightDp, accented = true) {
             currentInputConnection?.deleteSurroundingText(1, 0)
+            if (currentWord.isNotEmpty()) {
+                currentWord.deleteCharAt(currentWord.length - 1)
+            }
+            updateSuggestions()
         })
         bottomRow.addView(makeKey("إدخال", weight = 1.5f, heightDp = heightDp, accented = true) {
+            val finishedWord = currentWord.toString()
             currentInputConnection?.sendKeyEvent(
                 android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER)
             )
+            if (suggestionsEnabled && finishedWord.isNotEmpty()) {
+                LearnedDictionary.learn(this@SecureInputMethodService, finishedWord)
+            }
+            currentWord.clear()
+            updateSuggestions()
         })
         root.addView(bottomRow)
 
@@ -189,6 +285,26 @@ class SecureInputMethodService : InputMethodService() {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         // No state from a previous session is loaded here - intentionally.
+        // Switching into (or back to) a field always starts with a clean
+        // word buffer, never whatever was being typed in a previous field.
+        currentWord.clear()
+
+        // Suggestions are opt-OUT per field, driven entirely by what the
+        // app being typed into declares - never by anything this keyboard
+        // remembers. A password field, or any field explicitly marked
+        // "no suggestions" (this app's own EncryptActivity marks its
+        // message/key fields this way - see activity_encrypt.xml),
+        // disables the suggestion strip for that field.
+        val inputType = info?.inputType ?: InputType.TYPE_NULL
+        val variation = inputType and InputType.TYPE_MASK_VARIATION
+        val isPassword = inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT &&
+            (variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD)
+        val noSuggestionsFlag = inputType and InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0
+        val isTextClass = inputType and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT
+        suggestionsEnabled = isTextClass && !isPassword && !noSuggestionsFlag
+        updateSuggestions()
 
         // Live-apply a height or accent-color change made in Settings
         // since this keyboard view was last built, without requiring the
@@ -198,5 +314,87 @@ class SecureInputMethodService : InputMethodService() {
         if (currentHeight != appliedHeightDp || currentAccent != appliedAccentRes) {
             setInputView(onCreateInputView())
         }
+    }
+
+    override fun onFinishInputView(finishingInput: Boolean) {
+        super.onFinishInputView(finishingInput)
+        // Leaving the field entirely - drop the in-progress word rather
+        // than let it linger in memory for a session that's now over.
+        currentWord.clear()
+        updateSuggestions()
+    }
+
+    /**
+     * Rebuilds the suggestion strip's contents from [currentWord] and
+     * shows/hides the bar. Called after every key press that can change
+     * the current word (letters, backspace) and whenever suggestions are
+     * turned on/off for the focused field.
+     */
+    private fun updateSuggestions() {
+        val bar = suggestionBar ?: return
+        bar.removeAllViews()
+
+        if (!suggestionsEnabled || currentWord.isEmpty()) {
+            bar.visibility = View.GONE
+            return
+        }
+
+        val words = mergedSuggestions(currentWord.toString())
+        if (words.isEmpty()) {
+            bar.visibility = View.GONE
+            return
+        }
+
+        val heightDp = Prefs.keyboardHeightDp(this)
+        for (word in words) {
+            val chip = TextView(this).apply {
+                text = word
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                typeface = Typeface.create(Fonts.currentTypeface(this@SecureInputMethodService), Typeface.NORMAL)
+                setTextColor(resources.getColor(R.color.slate_200, theme))
+                background = ThemeUtil.keyBackgroundSelector(this@SecureInputMethodService, accented = false)
+                isClickable = true
+                isFocusable = true
+                val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f)
+                val marginPx = dpToPx(2f)
+                lp.setMargins(marginPx, 0, marginPx, 0)
+                layoutParams = lp
+                setOnClickListener {
+                    // Replace the in-progress word with the tapped
+                    // suggestion, then a trailing space, matching normal
+                    // keyboard suggestion-bar behavior. Tapping counts as
+                    // "using" that word, so it's learned too (same
+                    // suggestionsEnabled gate as space/enter below).
+                    currentInputConnection?.deleteSurroundingText(currentWord.length, 0)
+                    currentInputConnection?.commitText("$word ", 1)
+                    if (suggestionsEnabled) {
+                        LearnedDictionary.learn(this@SecureInputMethodService, word)
+                    }
+                    currentWord.clear()
+                    updateSuggestions()
+                }
+            }
+            bar.addView(chip)
+        }
+        bar.visibility = View.VISIBLE
+    }
+
+    /**
+     * Combines the user's own learned words (ranked by how often THEY
+     * typed them) with the fixed static dictionary, personal words
+     * first. Only ever called when suggestionsEnabled is true, so this
+     * naturally never runs for a sensitive field either.
+     */
+    private fun mergedSuggestions(prefix: String): List<String> {
+        val learned = LearnedDictionary.suggestionsFor(prefix, 5)
+        if (learned.size >= 5) return learned
+        val merged = LinkedHashSet<String>(learned)
+        for (word in WordDictionary.suggestionsFor(prefix)) {
+            if (merged.size >= 5) break
+            merged.add(word)
+        }
+        return merged.toList()
     }
 }

@@ -73,4 +73,9 @@
     <string name="keyboard_height_value">الارتفاع الحالي: %1$d (معاينة تحت)</string>
     <string name="settings_note">التغييرات بتتطبق على شاشات التطبيق فورا. ارتفاع الكيبورد بيتطبق فعليا في المرة الجاية اللي تفتح فيها الكيبورد. كل الإعدادات محفوظة محليا على جهازك فقط.</string>
     <string name="open_theme_settings">الإعدادات والمظهر</string>
+
+    <string name="learned_words_title">الكلمات المتعلَّمة</string>
+    <string name="learned_words_desc">في أي حقل غير حساس (خارج شاشة التشفير)، الكيبورد بيحفظ الكلمات اللي بتكتبها بشكل متكرر على جهازك فقط (بدون إنترنت نهائيا) عشان يقترحها لك بشكل أدق. مفيش أي جملة أو نص كامل بيتحفظ - كلمات مفردة بس مع عدد مرات الاستخدام. تقدر تمسح كل ده في أي وقت.</string>
+    <string name="clear_learned_btn">مسح الكلمات المتعلَّمة</string>
+    <string name="learned_cleared_toast">تم مسح كل الكلمات المتعلَّمة</string>
 </resources>

@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 
 class SettingsActivity : AppCompatActivity() {
@@ -37,6 +38,16 @@ class SettingsActivity : AppCompatActivity() {
             startActivity(Intent(this, ThemeSettingsActivity::class.java))
         }
 
+        findViewById<android.view.View>(R.id.btnClearLearned).setOnClickListener {
+            // Immediate, user-triggered wipe of the personal learned-word
+            // dictionary (see LearnedDictionary.kt) - both the in-memory
+            // map and the on-disk file. Does not touch the static bundled
+            // dictionary (WordDictionary), which was never user data to
+            // begin with.
+            LearnedDictionary.clear(this)
+            Toast.makeText(this, R.string.learned_cleared_toast, Toast.LENGTH_SHORT).show()
+        }
+
         applyCurrentTheme()
     }
 
@@ -57,7 +68,8 @@ class SettingsActivity : AppCompatActivity() {
         ThemeUtil.tintOutline(
             this,
             findViewById(R.id.btnSwitch),
-            findViewById(R.id.btnThemeSettings)
+            findViewById(R.id.btnThemeSettings),
+            findViewById(R.id.btnClearLearned)
         )
         Fonts.applyToTree(findViewById(android.R.id.content), Fonts.currentTypeface(this))
     }
