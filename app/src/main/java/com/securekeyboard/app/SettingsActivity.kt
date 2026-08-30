@@ -48,6 +48,16 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.learned_cleared_toast, Toast.LENGTH_SHORT).show()
         }
 
+        findViewById<android.view.View>(R.id.btnClearPhrases).setOnClickListener {
+            // Same idea as btnClearLearned, but for whole saved sentences
+            // (see PhraseDictionary.kt) - a separate wipe since it's a
+            // separate, bigger privacy trade-off from single-word
+            // learning, and a user may want to clear one without the
+            // other.
+            PhraseDictionary.clear(this)
+            Toast.makeText(this, R.string.phrases_cleared_toast, Toast.LENGTH_SHORT).show()
+        }
+
         applyCurrentTheme()
     }
 
@@ -69,7 +79,8 @@ class SettingsActivity : AppCompatActivity() {
             this,
             findViewById(R.id.btnSwitch),
             findViewById(R.id.btnThemeSettings),
-            findViewById(R.id.btnClearLearned)
+            findViewById(R.id.btnClearLearned),
+            findViewById(R.id.btnClearPhrases)
         )
         Fonts.applyToTree(findViewById(android.R.id.content), Fonts.currentTypeface(this))
     }

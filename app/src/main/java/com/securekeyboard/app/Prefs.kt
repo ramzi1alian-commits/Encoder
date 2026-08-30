@@ -1,6 +1,7 @@
 package com.securekeyboard.app
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -175,8 +176,58 @@ object Fonts {
  */
 object ThemeUtil {
 
+    /**
+     * FIXED: the keyboard (SecureInputMethodService, a plain
+     * InputMethodService - not an AppCompatActivity) used to resolve all
+     * of its colors straight from `context.resources`, whose day/night
+     * qualifier is driven ONLY by the phone's SYSTEM dark-mode setting.
+     * The in-app "الوضع الليلي/النهاري" toggle in ThemeSettingsActivity
+     * only ever called AppCompatDelegate.setDefaultNightMode(), which
+     * AppCompat applies to AppCompatActivity screens (Settings, theme
+     * settings, the encrypt tool) by wrapping THEIR OWN Resources - it
+     * has no effect on a Service. Net result: picking "الوضع الليلي"
+     * inside the app correctly darkened those three screens, but the
+     * actual typing keyboard kept rendering values/colors.xml (the light
+     * palette) unless the PHONE itself also happened to be in system
+     * dark mode - which read as "doesn't turn black, looks washed out".
+     *
+     * Fixed by making Prefs.isDarkMode() the single source of truth
+     * everywhere, instead of two different, sometimes-disagreeing
+     * signals (AppCompatDelegate for activities, system Configuration
+     * for the service). Every color/drawable lookup in this object goes
+     * through a Context whose night-mode bit is explicitly forced to
+     * match Prefs.isDarkMode(), so values-night/colors.xml is always the
+     * one actually driving the keyboard's colors when the user picked
+     * night mode - regardless of what the phone's own system setting is.
+     */
+    private fun themedContext(context: Context): Context {
+        val forced = Configuration(context.resources.configuration)
+        val nightBit = if (Prefs.isDarkMode(context)) {
+            Configuration.UI_MODE_NIGHT_YES
+        } else {
+            Configuration.UI_MODE_NIGHT_NO
+        }
+        forced.uiMode = (forced.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or nightBit
+        return context.createConfigurationContext(forced)
+    }
+
     fun accentColor(context: Context): Int =
-        ContextCompat.getColor(context, Prefs.accentColorRes(context))
+        ContextCompat.getColor(themedContext(context), Prefs.accentColorRes(context))
+
+    /**
+     * The normal (non-accented) label/text color - was being read directly
+     * via `resources.getColor(R.color.slate_200, theme)` in
+     * SecureInputMethodService, which bypasses this object entirely and so
+     * missed the same day/night fix as everything else here. Route it
+     * through here instead so key labels and suggestion-chip text actually
+     * follow Prefs.isDarkMode() too, not just the key/background shapes.
+     */
+    fun textColor(context: Context): Int =
+        ContextCompat.getColor(themedContext(context), R.color.slate_200)
+
+    /** Fixed dark color for text drawn on top of an accent-colored surface - see R.color.text_on_accent. */
+    fun textOnAccentColor(context: Context): Int =
+        ContextCompat.getColor(themedContext(context), R.color.text_on_accent)
 
     /** Tints a filled ("primary") button's background with the current accent. */
     fun tintPrimary(context: Context, vararg buttons: com.google.android.material.button.MaterialButton) {
@@ -200,11 +251,12 @@ object ThemeUtil {
      * made color choices look like they weren't being saved.
      */
     fun setSelected(view: android.view.View, selected: Boolean, accent: Int) {
+        val ctx = themedContext(view.context)
         val bg = GradientDrawable()
         bg.cornerRadius = 10f * view.resources.displayMetrics.density
-        bg.setColor(ContextCompat.getColor(view.context, R.color.navy_800))
+        bg.setColor(ContextCompat.getColor(ctx, R.color.navy_800))
         val strokeWidthDp = if (selected) 2f else 1f
-        val strokeColor = if (selected) accent else ContextCompat.getColor(view.context, R.color.navy_700)
+        val strokeColor = if (selected) accent else ContextCompat.getColor(ctx, R.color.navy_700)
         bg.setStroke((strokeWidthDp * view.resources.displayMetrics.density).toInt(), strokeColor)
         view.background = bg
     }
@@ -221,6 +273,7 @@ object ThemeUtil {
         accent: Int
     ) {
         val context = button.context
+        val ctx = themedContext(context)
         if (selected) {
             button.strokeWidth = (2 * context.resources.displayMetrics.density).toInt()
             button.strokeColor = android.content.res.ColorStateList.valueOf(accent)
@@ -228,9 +281,9 @@ object ThemeUtil {
         } else {
             button.strokeWidth = (1 * context.resources.displayMetrics.density).toInt()
             button.strokeColor = android.content.res.ColorStateList.valueOf(
-                ContextCompat.getColor(context, R.color.navy_700)
+                ContextCompat.getColor(ctx, R.color.navy_700)
             )
-            button.setTextColor(ContextCompat.getColor(context, R.color.slate_200))
+            button.setTextColor(ContextCompat.getColor(ctx, R.color.slate_200))
         }
     }
 
@@ -270,12 +323,13 @@ object ThemeUtil {
     }
 
     private fun keyShape(context: Context, pressed: Boolean, accented: Boolean): GradientDrawable {
+        val ctx = themedContext(context)
         val density = context.resources.displayMetrics.density
         val bg = GradientDrawable()
         bg.cornerRadius = KEY_CORNER_RADIUS_DP * density
         bg.orientation = GradientDrawable.Orientation.TOP_BOTTOM
         if (pressed) {
-            val pressedColor = ContextCompat.getColor(context, R.color.navy_700)
+            val pressedColor = ContextCompat.getColor(ctx, R.color.navy_700)
             bg.colors = intArrayOf(pressedColor, pressedColor)
         } else {
             // White-to-very-light-gray top-to-bottom gradient, on top of
@@ -283,11 +337,11 @@ object ThemeUtil {
             // contrast (rather than the old near-identical whites) plus
             // real elevation is what makes the key read as a raised card.
             bg.colors = intArrayOf(
-                ContextCompat.getColor(context, R.color.navy_900),
-                ContextCompat.getColor(context, R.color.navy_800)
+                ContextCompat.getColor(ctx, R.color.navy_900),
+                ContextCompat.getColor(ctx, R.color.navy_800)
             )
         }
-        val strokeColor = if (accented) accentColor(context) else ContextCompat.getColor(context, R.color.navy_700)
+        val strokeColor = if (accented) accentColor(context) else ContextCompat.getColor(ctx, R.color.navy_700)
         val strokeWidthDp = if (accented) 1.6f else 1f
         bg.setStroke((strokeWidthDp * density).toInt(), strokeColor)
         return bg
@@ -307,11 +361,12 @@ object ThemeUtil {
     }
 
     private fun pillShape(context: Context, pressed: Boolean): GradientDrawable {
+        val ctx = themedContext(context)
         val density = context.resources.displayMetrics.density
         val bg = GradientDrawable()
         bg.cornerRadius = 999f * density // large enough to always render as a full pill
         bg.setColor(
-            ContextCompat.getColor(context, if (pressed) R.color.navy_700 else R.color.navy_800)
+            ContextCompat.getColor(ctx, if (pressed) R.color.navy_700 else R.color.navy_800)
         )
         return bg
     }
@@ -325,7 +380,7 @@ object ThemeUtil {
     /** Flat, slightly darker fill for the whole keyboard surface so raised keys have contrast to sit on. */
     fun keyboardBackground(context: Context): Drawable {
         val bg = GradientDrawable()
-        bg.setColor(ContextCompat.getColor(context, R.color.navy_950))
+        bg.setColor(ContextCompat.getColor(themedContext(context), R.color.navy_950))
         return bg
     }
 }

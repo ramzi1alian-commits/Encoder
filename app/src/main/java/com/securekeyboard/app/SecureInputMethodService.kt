@@ -105,13 +105,48 @@ import android.widget.TextView
  *    can stretch a word for emphasis/calligraphic effect. A quick tap
  *    still always just types the letter as before.
  *
+ * FIXED IN THIS VERSION - the current word used to be "forgotten" the
+ * moment backspace crossed back over a space into an already-finished
+ * word (or the moment the user tapped the cursor into the middle of one):
+ * [currentWord] was only ever built forward, one appended letter at a
+ * time, so anything that put the cursor somewhere it hadn't typed
+ * through left the buffer empty and suggestions stuck off until a brand
+ * new word was started. [currentWord] is now re-derived from the actual
+ * field content around the cursor - see [resyncCurrentWordFromField] -
+ * both after backspace and on every cursor move ([onUpdateSelection]),
+ * so going back into a word (by backspacing OR by tapping) restores it
+ * in full instead of starting over.
+ *
+ * ADDED IN THIS VERSION - saved phrases: finishing a line with إدخال
+ * (Enter) now also learns that whole line as a phrase (see
+ * [PhraseDictionary]), gated by the exact same suggestionsEnabled check
+ * as everything else here. This is a bigger privacy trade-off than
+ * single-word learning - PhraseDictionary.kt's class doc spells out
+ * exactly what that does and doesn't mean, and it's wipeable separately
+ * from the learned-words list in Settings.
+ *
  * FIXED IN THIS VERSION - dark mode never visibly applied: this view is
  * only ever built once per keyboard session, so its colors (from
  * res/values/colors.xml or res/values-night/colors.xml) were resolved
  * once and never re-resolved when the system's dark/light mode changed
  * afterwards. See [appliedNightMode], [onConfigurationChanged], and the
  * extra check added to onStartInputView - the view now rebuilds itself
- * whenever night mode differs from what's currently applied.
+ * whenever the applied night mode differs from what's currently applied.
+ *
+ * FIXED IN THIS VERSION (deeper bug behind the above) - the keyboard
+ * didn't actually turn black when "الوضع الليلي" was chosen INSIDE the
+ * app's own theme settings, only when the PHONE's system dark mode was
+ * also on: this Service (unlike the AppCompatActivity screens) never
+ * consulted AppCompatDelegate's forced night mode at all, only the raw
+ * system Configuration. Every color/drawable this keyboard draws now
+ * goes through ThemeUtil, which resolves everything against
+ * Prefs.isDarkMode() directly (see ThemeUtil.themedContext()) - the
+ * app's own toggle is the one actual source of truth everywhere now, not
+ * the phone's separate system setting. The night palette itself
+ * (res/values-night/colors.xml) was also given more contrast between the
+ * keyboard surface, key faces, and borders - same shapes/corners/
+ * elevation as before, just clearer separation between them instead of
+ * reading as a flat, slightly-hazy dark gray.
  */
 class SecureInputMethodService : InputMethodService() {
 
@@ -185,6 +220,7 @@ class SecureInputMethodService : InputMethodService() {
         // class doc above and LearnedDictionary.kt).
         WordDictionary.preload(this)
         LearnedDictionary.preload(this)
+        PhraseDictionary.preload(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -292,18 +328,32 @@ class SecureInputMethodService : InputMethodService() {
         })
         bottomRow.addView(makeKey("حذف", weight = 1.5f, heightDp = heightDp, accented = true) {
             currentInputConnection?.deleteSurroundingText(1, 0)
-            if (currentWord.isNotEmpty()) {
-                currentWord.deleteCharAt(currentWord.length - 1)
-            }
-            updateSuggestions()
+            // Was: just chop the last char off currentWord, which left
+            // the buffer permanently empty (suggestions stuck off) the
+            // moment backspace crossed back over a space into a word
+            // that was already finished. Re-deriving from the field
+            // instead brings that whole word back, exactly as it was
+            // typed - see resyncCurrentWordFromField().
+            resyncCurrentWordFromField()
         })
         bottomRow.addView(makeKey("إدخال", weight = 1.5f, heightDp = heightDp, accented = true) {
             val finishedWord = currentWord.toString()
-            currentInputConnection?.sendKeyEvent(
+            val ic = currentInputConnection
+            // Grab the whole line being finished BEFORE sending Enter -
+            // some apps submit/clear the field the instant Enter
+            // arrives, so there'd be nothing left to read afterward.
+            val lineBeforeCursor = ic?.getTextBeforeCursor(500, 0)?.toString() ?: ""
+            val finishedLine = lineBeforeCursor.substringAfterLast('\n').trim()
+            ic?.sendKeyEvent(
                 android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER)
             )
-            if (suggestionsEnabled && finishedWord.isNotEmpty()) {
-                LearnedDictionary.learn(this@SecureInputMethodService, finishedWord)
+            if (suggestionsEnabled) {
+                if (finishedWord.isNotEmpty()) {
+                    LearnedDictionary.learn(this@SecureInputMethodService, finishedWord)
+                }
+                if (finishedLine.isNotEmpty()) {
+                    PhraseDictionary.learn(this@SecureInputMethodService, finishedLine)
+                }
             }
             currentWord.clear()
             updateSuggestions()
@@ -343,7 +393,7 @@ class SecureInputMethodService : InputMethodService() {
             typeface = Typeface.create(Fonts.currentTypeface(this@SecureInputMethodService), Typeface.NORMAL)
             setTextColor(
                 if (accented) ThemeUtil.accentColor(this@SecureInputMethodService)
-                else resources.getColor(R.color.slate_200, theme)
+                else ThemeUtil.textColor(this@SecureInputMethodService)
             )
             background = ThemeUtil.keyBackgroundSelector(this@SecureInputMethodService, accented)
             // Real elevation (not a drawn trick) so the key reads as a
@@ -463,6 +513,71 @@ class SecureInputMethodService : InputMethodService() {
     }
 
     /**
+     * True for every character this keyboard can actually type as part
+     * of a word: the basic Arabic letter block (which covers every plain
+     * letter AND every hamza form - ء through ي, i.e. 0x0621-0x064A) plus
+     * tatweel (ـ), which extends a word rather than ending it. Anything
+     * else (space, digits, punctuation, newline) is a word boundary.
+     */
+    private fun isArabicWordChar(c: Char): Boolean {
+        return c == '\u0640' || (c.code in 0x0621..0x064A)
+    }
+
+    /**
+     * Re-derives [currentWord] directly from the real field content
+     * around the cursor, instead of trusting this class's own forward-
+     * only bookkeeping. This is what makes backspacing back over a space
+     * into an already-finished word - or tapping the cursor into the
+     * middle of one - restore that FULL word instead of leaving the
+     * suggestion bar blank and treating the next letter as a new word.
+     *
+     * Reads only a short, bounded window of text immediately before the
+     * cursor (never the whole field) purely to locate the current word's
+     * start - this is not a history buffer, and nothing read here is
+     * stored anywhere beyond this in-memory StringBuilder's own lifetime.
+     */
+    private fun resyncCurrentWordFromField() {
+        if (!suggestionsEnabled) {
+            if (currentWord.isNotEmpty()) {
+                currentWord.setLength(0)
+                updateSuggestions()
+            }
+            return
+        }
+        val ic = currentInputConnection ?: return
+        val before = ic.getTextBeforeCursor(64, 0)?.toString() ?: ""
+        var start = before.length
+        while (start > 0 && isArabicWordChar(before[start - 1])) start--
+        val word = before.substring(start)
+        if (word != currentWord.toString()) {
+            currentWord.setLength(0)
+            currentWord.append(word)
+            updateSuggestions()
+        }
+    }
+
+    /**
+     * Fires whenever the cursor/selection in the focused field changes -
+     * including when the user taps to move the cursor somewhere else
+     * entirely, not just as a side effect of this keyboard's own key
+     * presses. Re-syncing here (in addition to after backspace) is what
+     * makes moving the cursor back INTO a previously-typed word - by
+     * tapping, not only by backspacing - also restore it for
+     * suggestions.
+     */
+    override fun onUpdateSelection(
+        oldSelStart: Int,
+        oldSelEnd: Int,
+        newSelStart: Int,
+        newSelEnd: Int,
+        candidatesStart: Int,
+        candidatesEnd: Int
+    ) {
+        super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        resyncCurrentWordFromField()
+    }
+
+    /**
      * Commits a single letter/variant to the field AND treats it as
      * extending the current word for suggestion purposes - the same
      * bookkeeping every plain letter key did before, now shared by both
@@ -531,10 +646,10 @@ class SecureInputMethodService : InputMethodService() {
             val chip = content.getChildAt(i) as? TextView ?: continue
             if (i == selected) {
                 chip.setBackgroundColor(ThemeUtil.accentColor(this))
-                chip.setTextColor(resources.getColor(R.color.text_on_accent, theme))
+                chip.setTextColor(ThemeUtil.textOnAccentColor(this))
             } else {
                 chip.setBackgroundColor(Color.TRANSPARENT)
-                chip.setTextColor(resources.getColor(R.color.slate_200, theme))
+                chip.setTextColor(ThemeUtil.textColor(this))
             }
         }
     }
@@ -574,21 +689,29 @@ class SecureInputMethodService : InputMethodService() {
         }
     }
 
-    /** Extracts just the day/night bits from the current configuration's uiMode. */
-    private fun currentNightMode(): Int =
-        resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+    /**
+     * FIXED: this used to read the SYSTEM's day/night bit
+     * (resources.configuration.uiMode), which is what left the keyboard
+     * ignoring the app's own "الوضع الليلي/النهاري" setting entirely -
+     * see the long comment on ThemeUtil.themedContext() for the full
+     * story. Prefs.isDarkMode() is the single source of truth now, so
+     * that's what decides whether the keyboard needs rebuilding here too.
+     */
+    private fun currentNightMode(): Int = if (Prefs.isDarkMode(this)) 1 else 0
 
     /**
-     * Catches the case where the system's dark/light mode is toggled
-     * WHILE this keyboard is already on screen (not just next time a
-     * field is focused, which onStartInputView already covers) - without
-     * this, a live toggle would show no visible effect until the
-     * keyboard was hidden and shown again.
+     * Catches the case where the system's dark/light mode changes WHILE
+     * this keyboard is already on screen. This app's own night setting is
+     * the real source of truth (see currentNightMode()) and doesn't fire
+     * this callback on its own - onStartInputView already re-checks it on
+     * every focus. This override just makes sure a genuine SYSTEM dark-
+     * mode flip doesn't leave stale elevation/shadow rendering behind
+     * without at least a redraw, even though it no longer changes which
+     * color palette is used.
      */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        val nightMode = newConfig.uiMode and Configuration.UI_MODE_NIGHT_MASK
-        if (nightMode != appliedNightMode && isInputViewShown) {
+        if (isInputViewShown) {
             setInputView(onCreateInputView())
         }
     }
@@ -621,21 +744,27 @@ class SecureInputMethodService : InputMethodService() {
             return
         }
 
-        val words = mergedSuggestions(currentWord.toString())
-        if (words.isEmpty()) {
+        val suggestions = mergedSuggestions(currentWord.toString())
+        if (suggestions.isEmpty()) {
             bar.visibility = View.INVISIBLE
             return
         }
 
         val heightDp = Prefs.keyboardHeightDp(this)
-        for (word in words) {
+        for (suggestion in suggestions) {
             val chip = TextView(this).apply {
-                text = word
+                text = suggestion.display
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
                 gravity = Gravity.CENTER
                 includeFontPadding = false
                 typeface = Typeface.create(Fonts.currentTypeface(this@SecureInputMethodService), Typeface.NORMAL)
-                setTextColor(resources.getColor(R.color.slate_200, theme))
+                // A saved whole-sentence suggestion gets the accent
+                // color so it visibly reads as "a full phrase you've
+                // typed before", not just another single-word guess.
+                setTextColor(
+                    if (suggestion.isPhrase) ThemeUtil.accentColor(this@SecureInputMethodService)
+                    else ThemeUtil.textColor(this@SecureInputMethodService)
+                )
                 background = ThemeUtil.suggestionChipBackground(this@SecureInputMethodService)
                 isClickable = true
                 isFocusable = true
@@ -647,12 +776,18 @@ class SecureInputMethodService : InputMethodService() {
                     // Replace the in-progress word with the tapped
                     // suggestion, then a trailing space, matching normal
                     // keyboard suggestion-bar behavior. Tapping counts as
-                    // "using" that word, so it's learned too (same
-                    // suggestionsEnabled gate as space/enter below).
+                    // "using" it, so it's learned too (same
+                    // suggestionsEnabled gate as space/enter elsewhere) -
+                    // a phrase reinforces PhraseDictionary, a single word
+                    // reinforces LearnedDictionary, never the other one.
                     currentInputConnection?.deleteSurroundingText(currentWord.length, 0)
-                    currentInputConnection?.commitText("$word ", 1)
+                    currentInputConnection?.commitText("${suggestion.display} ", 1)
                     if (suggestionsEnabled) {
-                        LearnedDictionary.learn(this@SecureInputMethodService, word)
+                        if (suggestion.isPhrase) {
+                            PhraseDictionary.learn(this@SecureInputMethodService, suggestion.display)
+                        } else {
+                            LearnedDictionary.learn(this@SecureInputMethodService, suggestion.display)
+                        }
                     }
                     currentWord.clear()
                     updateSuggestions()
@@ -663,20 +798,31 @@ class SecureInputMethodService : InputMethodService() {
         bar.visibility = View.VISIBLE
     }
 
+    /** A single suggestion chip: what to show, and what learns from tapping it. */
+    private data class Suggestion(val display: String, val isPhrase: Boolean)
+
     /**
-     * Combines the user's own learned words (ranked by how often THEY
-     * typed them) with the fixed static dictionary, personal words
-     * first. Only ever called when suggestionsEnabled is true, so this
-     * naturally never runs for a sensitive field either.
+     * Combines, in priority order: the user's own previously-SAVED FULL
+     * SENTENCES that start with this word (see [PhraseDictionary], capped
+     * at 2 so they can't crowd out every single-word suggestion), then
+     * their learned single words (ranked by how often THEY typed them),
+     * then the fixed static dictionary. Only ever called when
+     * suggestionsEnabled is true, so this naturally never runs for a
+     * sensitive field either.
      */
-    private fun mergedSuggestions(prefix: String): List<String> {
-        val learned = LearnedDictionary.suggestionsFor(prefix, 5)
-        if (learned.size >= 5) return learned
-        val merged = LinkedHashSet<String>(learned)
-        for (word in WordDictionary.suggestionsFor(prefix)) {
-            if (merged.size >= 5) break
-            merged.add(word)
+    private fun mergedSuggestions(prefix: String): List<Suggestion> {
+        val out = LinkedHashSet<Suggestion>()
+        for (phrase in PhraseDictionary.suggestionsFor(prefix, max = 2)) {
+            out.add(Suggestion(phrase, isPhrase = true))
         }
-        return merged.toList()
+        for (word in LearnedDictionary.suggestionsFor(prefix, 5)) {
+            if (out.size >= 5) break
+            out.add(Suggestion(word, isPhrase = false))
+        }
+        for (word in WordDictionary.suggestionsFor(prefix)) {
+            if (out.size >= 5) break
+            out.add(Suggestion(word, isPhrase = false))
+        }
+        return out.toList()
     }
 }
