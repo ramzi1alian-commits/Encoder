@@ -149,6 +149,7 @@
     <string name="crypto_panel_empty_field_toast">الحقل فارغ، مفيش نص تشفّره</string>
     <string name="crypto_panel_no_ciphertext_toast">مفيش رسالة مشفرة في الحافظة</string>
     <string name="crypto_panel_decrypt_failed_toast">تعذّر فك التشفير - المفتاح غلط أو الرسالة تالفة</string>
+    <string name="crypto_panel_encrypt_failed_toast">تعذّر التشفير - جرّب تاني، أو تأكد إن فيه ذاكرة كافية على الجهاز</string>
     <string name="crypto_panel_expired_toast">هذه الرسالة منتهية الصلاحية</string>
     <string name="crypto_panel_decrypted_title">النص بعد فك التشفير</string>
     <string name="crypto_panel_close_btn">إغلاق</string>

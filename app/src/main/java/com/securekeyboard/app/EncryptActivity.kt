@@ -196,7 +196,12 @@ class EncryptActivity : AppCompatActivity() {
                         val expirySeconds = selectedExpirySeconds()
                         showResult(CryptoEngine.encryptWithKey(textChars, sharedKey, expirySeconds))
                         inputText.text?.clear()
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
+                        // FIX (reported bug): widened from Exception to
+                        // Throwable so an OutOfMemoryError from the
+                        // Argon2id-adjacent memory pressure (or any other
+                        // Error subclass) degrades to an inline error
+                        // message instead of crashing the whole screen.
                         showError(getString(R.string.err_generic))
                     } finally {
                         Arrays.fill(sharedKey, 0)
@@ -220,7 +225,13 @@ class EncryptActivity : AppCompatActivity() {
                             // clearing it here reduces how long it sits
                             // visible/in memory.
                             inputText.text?.clear()
-                        } catch (e: Exception) {
+                        } catch (e: Throwable) {
+                            // Same fix as the key-exchange encrypt catch
+                            // above: this is the one that actually runs
+                            // Argon2id (up to 256MB), so it's the most
+                            // likely of all the catch blocks in this file
+                            // to face an OutOfMemoryError, which a plain
+                            // "catch (e: Exception)" would NOT catch.
                             showError(getString(R.string.err_generic))
                         }
                     } finally {
@@ -264,7 +275,11 @@ class EncryptActivity : AppCompatActivity() {
                     }
                 } catch (e: CryptoEngine.ExpiredMessageException) {
                     showError(getString(R.string.err_expired))
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
+                    // Widened for the same reason as the encrypt catches
+                    // above - decrypt() also runs Argon2id (memory cost
+                    // read from the ciphertext header itself), so it's
+                    // just as exposed to OutOfMemoryError.
                     showError(getString(R.string.err_bad_key))
                 } finally {
                     Arrays.fill(sharedKey, 0)
@@ -289,7 +304,8 @@ class EncryptActivity : AppCompatActivity() {
                         }
                     } catch (e: CryptoEngine.ExpiredMessageException) {
                         showError(getString(R.string.err_expired))
-                    } catch (e: Exception) {
+                    } catch (e: Throwable) {
+                        // Same widening as above.
                         showError(getString(R.string.err_bad_key))
                     }
                 } finally {

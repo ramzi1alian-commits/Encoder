@@ -762,7 +762,7 @@ class SecureInputMethodService : InputMethodService() {
         rebuildKeyboardView()
     }
 
-    /** Returns the ciphertext, or null (after showing a toast) if no session passphrase is active. */
+    /** Returns the ciphertext, or null (after showing a toast) if no session passphrase is active OR encryption itself fails. */
     private fun encryptComposeBufferWithPassphrase(): String? {
         val passphrase = SessionKeyStore.get()
         if (passphrase == null) {
@@ -771,8 +771,20 @@ class SecureInputMethodService : InputMethodService() {
         }
         try {
             val textChars = composeBuffer.toString().toCharArray()
-            return try {
-                CryptoEngine.encrypt(textChars, passphrase, expirySeconds = null)
+            try {
+                return CryptoEngine.encrypt(textChars, passphrase, expirySeconds = null)
+            } catch (e: Throwable) {
+                // FIX (reported bug): this used to have no catch at all -
+                // any failure (including OutOfMemoryError from the
+                // Argon2id memory cost, which is a Throwable/Error, NOT
+                // an Exception, so a plain "catch (e: Exception)" would
+                // not even have caught it) crashed this whole IME
+                // process, which is what made the keyboard itself
+                // disappear from screen. Now it degrades to a toast,
+                // matching how decryptWithPassphraseAndShow() already
+                // handled its own failures.
+                android.widget.Toast.makeText(this, R.string.crypto_panel_encrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
+                return null
             } finally {
                 java.util.Arrays.fill(textChars, ' ')
             }
@@ -795,8 +807,12 @@ class SecureInputMethodService : InputMethodService() {
         }
         try {
             val textChars = composeBuffer.toString().toCharArray()
-            return try {
-                CryptoEngine.encryptWithKey(textChars, sharedKey, expirySeconds = null)
+            try {
+                return CryptoEngine.encryptWithKey(textChars, sharedKey, expirySeconds = null)
+            } catch (e: Throwable) {
+                // Same fix as encryptComposeBufferWithPassphrase() above.
+                android.widget.Toast.makeText(this, R.string.crypto_panel_encrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
+                return null
             } finally {
                 java.util.Arrays.fill(textChars, ' ')
             }
@@ -839,6 +855,13 @@ class SecureInputMethodService : InputMethodService() {
             val textChars = fullText.toCharArray()
             val cipherText = try {
                 CryptoEngine.encrypt(textChars, passphrase, expirySeconds = null)
+            } catch (e: Throwable) {
+                // Same fix as encryptComposeBufferWithPassphrase() above -
+                // this path (the 🔒 encrypt-in-place button) had no catch
+                // at all before, so any failure took the whole keyboard
+                // down with it.
+                android.widget.Toast.makeText(this, R.string.crypto_panel_encrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
+                return
             } finally {
                 java.util.Arrays.fill(textChars, ' ')
             }
@@ -864,6 +887,10 @@ class SecureInputMethodService : InputMethodService() {
             val textChars = fullText.toCharArray()
             val cipherText = try {
                 CryptoEngine.encryptWithKey(textChars, sharedKey, expirySeconds = null)
+            } catch (e: Throwable) {
+                // Same fix as encryptFieldAndInjectWithPassphrase() above.
+                android.widget.Toast.makeText(this, R.string.crypto_panel_encrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
+                return
             } finally {
                 java.util.Arrays.fill(textChars, ' ')
             }
@@ -949,7 +976,11 @@ class SecureInputMethodService : InputMethodService() {
             rebuildKeyboardView()
         } catch (e: CryptoEngine.ExpiredMessageException) {
             android.widget.Toast.makeText(this, R.string.crypto_panel_expired_toast, android.widget.Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Widened from Exception to Throwable: decrypt() runs
+            // Argon2id using the memory cost stored in the ciphertext's
+            // own header, so it's exposed to the same OutOfMemoryError
+            // risk as the encrypt paths fixed above.
             android.widget.Toast.makeText(this, R.string.crypto_panel_decrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
         } finally {
             java.util.Arrays.fill(passphrase, ' ')
@@ -978,7 +1009,8 @@ class SecureInputMethodService : InputMethodService() {
             rebuildKeyboardView()
         } catch (e: CryptoEngine.ExpiredMessageException) {
             android.widget.Toast.makeText(this, R.string.crypto_panel_expired_toast, android.widget.Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
+            // Same widening as decryptWithPassphraseAndShow() above.
             android.widget.Toast.makeText(this, R.string.crypto_panel_decrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
         } finally {
             java.util.Arrays.fill(sharedKey, 0)
