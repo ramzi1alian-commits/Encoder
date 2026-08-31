@@ -137,10 +137,34 @@ object KeyExchangeManager {
         }
     }
 
-    /** This device's own public key, Base64-encoded - not secret, safe to display and share as-is. */
+    /**
+     * This device's own public key, Base64-encoded - not secret, safe to
+     * display and share as-is.
+     *
+     * FIX (reported bug): this used to call ensureIdentityExists()
+     * uncaught, and EncryptActivity.onCreate() calls this UNCONDITIONALLY
+     * (via setUpKeyExchangeUi(), regardless of whether the user has even
+     * touched the key-exchange switch) to populate the "your public key"
+     * display. Identity generation goes through the Android Keystore
+     * (see LocalStorageCrypto.encrypt, which - unlike its own decrypt() -
+     * does NOT catch its own exceptions), and Keystore key generation is
+     * known to occasionally throw on some devices/OEMs/emulators (e.g.
+     * right after boot, or on custom ROMs with a flaky StrongBox/TEE
+     * provider). An uncaught exception here meant EncryptActivity crashed
+     * the INSTANT it was opened - before the user ever pressed anything -
+     * which looked exactly like "opening the tool exits automatically".
+     * Catching here means a Keystore failure degrades to "no key
+     * available yet" (empty string) instead of crashing the whole
+     * encrypt/decrypt screen, which is needed regardless of key-exchange
+     * mode.
+     */
     fun myPublicKeyBase64(context: Context): String {
-        ensureIdentityExists(context)
-        return prefs(context).getString(KEY_MY_PUBLIC, "") ?: ""
+        return try {
+            ensureIdentityExists(context)
+            prefs(context).getString(KEY_MY_PUBLIC, "") ?: ""
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     fun hasPeerPublicKey(context: Context): Boolean =

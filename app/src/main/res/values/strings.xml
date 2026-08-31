@@ -124,6 +124,7 @@
     <string name="peer_key_missing_status">لسه محفوظش مفتاح لصاحبك</string>
     <string name="fingerprint_label">بصمة التحقق: %1$s (قارنها تليفونيا مع صاحبك قبل أي استخدام حساس)</string>
     <string name="key_exchange_no_peer_error">احفظ مفتاح صاحبك العام أولا قبل التشفير/فك التشفير بهذا الوضع</string>
+    <string name="key_exchange_unavailable_error">تعذّر توليد مفتاح الجهاز (مشكلة في مخزن مفاتيح النظام) - وضع تبادل المفاتيح غير متاح على هذا الجهاز حاليا. وضع كلمة السر لا يزال يعمل عاديا</string>
     <string name="key_exchange_wrong_mode_error">النص ده متشفر بوضع تبادل المفاتيح - فعّل مفتاح المفتاحين الثنائي بالأعلى بدل كلمة السر</string>
     <string name="key_exchange_regenerate_btn">توليد مفتاح جديد لي (يلغي التبادل مع الجميع)</string>
     <string name="key_exchange_regenerate_confirm">توليد مفتاح جديد هيلغي القدرة على فك تشفير أي رسائل قديمة اتبادلتها بالمفتاح الحالي مع أي حد، ولازم تبعت مفتاحك الجديد لكل الأطراف تاني. متأكد؟</string>

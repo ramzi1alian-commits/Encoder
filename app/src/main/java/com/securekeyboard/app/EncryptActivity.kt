@@ -508,6 +508,20 @@ class EncryptActivity : AppCompatActivity() {
 
     private fun refreshMyPublicKeyDisplay() {
         val myKey = KeyExchangeManager.myPublicKeyBase64(this)
+        // FIX (reported bug, paired with the try/catch now inside
+        // myPublicKeyBase64): a blank key here means identity generation
+        // failed (Keystore issue on this device) - rather than silently
+        // offering a switch that will only fail again the moment it's
+        // used, disable it and say so, so the passphrase mode (which
+        // doesn't touch the Keystore at all) stays fully usable.
+        if (myKey.isBlank()) {
+            switchKeyExchangeMode.isChecked = false
+            switchKeyExchangeMode.isEnabled = false
+            myPublicKeyText.text = getString(R.string.key_exchange_unavailable_error)
+            myFingerprintText.text = ""
+            return
+        }
+        switchKeyExchangeMode.isEnabled = true
         myPublicKeyText.text = myKey
         val fp = KeyExchangeManager.fingerprint(myKey)
         myFingerprintText.text = if (fp != null) getString(R.string.fingerprint_label, fp) else ""

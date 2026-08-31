@@ -738,7 +738,17 @@ class SecureInputMethodService : InputMethodService() {
             // from this whole page.
             currentInputConnection?.commitText(cipherText, 1)
             clearSecureCompose()
-            showingCrypto = false
+            // FIX (reported bug): this used to fall all the way back to
+            // showingCrypto = false, which - since clearSecureCompose()
+            // already turned showingSecureCompose off too - left BOTH
+            // page flags false and dropped straight into the ordinary
+            // (non-secure) letters page. That meant a single "إرسال" tap
+            // silently kicked the user out of the whole secure flow.
+            // Setting showingCrypto = true instead keeps them on the
+            // crypto panel (which already has its own تشفير/فك التشفير
+            // buttons) after sending - the secure flow is only actually
+            // left when the user explicitly taps "ابجد/ABC" there.
+            showingCrypto = true
             currentWord.clear()
             lastFinishedWord = null
             rebuildKeyboardView()
