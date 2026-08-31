@@ -164,6 +164,9 @@ class SecureInputMethodService : InputMethodService() {
         private const val LONG_PRESS_MS = 320L
         // How often ـ is inserted while a tatweel-extend key is held.
         private const val TATWEEL_REPEAT_MS = 110L
+        // How often a "repeatable" key (currently: backspace) re-fires
+        // its action while held down, after the initial LONG_PRESS_MS.
+        private const val KEY_REPEAT_MS = 60L
 
         // Keys that get a hamza-forms popup on long-press instead of the
         // tatweel-extend behavior. Order here is left-to-right in the
@@ -450,6 +453,14 @@ class SecureInputMethodService : InputMethodService() {
         bottomRow.addView(makeKey("🔒", weight = 1.2f, heightDp = heightDp) {
             showingCrypto = true
             rebuildKeyboardView()
+        })
+        // Direct one-tap shortcut: check the clipboard and decrypt right
+        // here, without opening the crypto menu first. Uses the exact
+        // same decryptClipboard() the crypto panel's own button calls -
+        // see its doc - so behavior (session check, ciphertext check,
+        // result screen) is identical either way.
+        bottomRow.addView(makeKey("🔓", weight = 1.2f, heightDp = heightDp) {
+            decryptClipboard()
         })
         bottomRow.addView(deleteKey(heightDp))
         bottomRow.addView(enterKey(heightDp))
@@ -781,6 +792,13 @@ class SecureInputMethodService : InputMethodService() {
      * the result inline in this same page (see cryptoDecryptedText
      * above); never writes the decrypted text into any field, clipboard,
      * or file.
+     *
+     * Called both from the crypto panel's own "فك التشفير" button AND
+     * directly from the main keyboard row's 🔓 shortcut key (see
+     * bottomRow in buildLettersPage) - either way it switches to the
+     * crypto page (showingCrypto = true) to display its result, so the
+     * 🔓 shortcut is a genuine single tap: check clipboard + decrypt +
+     * show result, without detouring through the crypto menu first.
      */
     private fun decryptClipboard() {
         val passphrase = SessionKeyStore.get()
@@ -803,6 +821,7 @@ class SecureInputMethodService : InputMethodService() {
                 } finally {
                     java.util.Arrays.fill(plainChars, ' ')
                 }
+                showingCrypto = true
                 rebuildKeyboardView()
             } catch (e: CryptoEngine.ExpiredMessageException) {
                 android.widget.Toast.makeText(this, R.string.crypto_panel_expired_toast, android.widget.Toast.LENGTH_SHORT).show()
@@ -846,7 +865,7 @@ class SecureInputMethodService : InputMethodService() {
         }
 
     private fun deleteKey(heightDp: Int, weight: Float = 1.5f) =
-        makeKey("حذف", weight = weight, heightDp = heightDp, accented = true) {
+        makeKey("حذف", weight = weight, heightDp = heightDp, accented = true, repeatable = true) {
             currentInputConnection?.deleteSurroundingText(1, 0)
             // Was: just chop the last char off currentWord, which left
             // the buffer permanently empty (suggestions stuck off) the
@@ -900,6 +919,7 @@ class SecureInputMethodService : InputMethodService() {
         accented: Boolean = false,
         variants: List<String>? = null,
         tatweelExtend: Boolean = false,
+        repeatable: Boolean = false,
         onClick: (() -> Unit)? = null
     ): TextView {
         return TextView(this).apply {
@@ -949,6 +969,13 @@ class SecureInputMethodService : InputMethodService() {
             var popupContent: LinearLayout? = null
             var selectedVariantIndex = 0
             var isTatweelRepeating = false
+            // BUG FIX: holding backspace used to delete exactly one
+            // character, the same as a single tap, because makeKey only
+            // ever wired up a hold-to-repeat timer for the tatweel-extend
+            // and accent-popup cases - there was no generic "repeat this
+            // key's own onClick while held" path at all. `repeatable`
+            // keys (currently just backspace) now get that generic path.
+            var isKeyRepeating = false
 
             setOnTouchListener { v, event ->
                 when (event.actionMasked) {
@@ -956,6 +983,7 @@ class SecureInputMethodService : InputMethodService() {
                         v.isPressed = true
                         ThemeUtil.applyPressedElevation(v, pressed = true)
                         isTatweelRepeating = false
+                        isKeyRepeating = false
                         selectedVariantIndex = 0
                         when {
                             variants != null -> {
@@ -974,6 +1002,23 @@ class SecureInputMethodService : InputMethodService() {
                                     isTatweelRepeating = true
                                     currentInputConnection?.commitText("ـ", 1)
                                     longPressHandler.postDelayed(repeatRunnable, TATWEEL_REPEAT_MS)
+                                }
+                                pendingLongPress = repeatRunnable
+                                longPressHandler.postDelayed(repeatRunnable, LONG_PRESS_MS)
+                            }
+                            repeatable -> {
+                                // Generic hold-to-repeat: after the same
+                                // LONG_PRESS_MS delay used everywhere else
+                                // in this keyboard, fire the key's own
+                                // onClick repeatedly every KEY_REPEAT_MS
+                                // for as long as it's held - e.g. holding
+                                // backspace now deletes continuously
+                                // instead of stopping at one character.
+                                lateinit var repeatRunnable: Runnable
+                                repeatRunnable = Runnable {
+                                    isKeyRepeating = true
+                                    onClick?.invoke()
+                                    longPressHandler.postDelayed(repeatRunnable, KEY_REPEAT_MS)
                                 }
                                 pendingLongPress = repeatRunnable
                                 longPressHandler.postDelayed(repeatRunnable, LONG_PRESS_MS)
@@ -1013,6 +1058,14 @@ class SecureInputMethodService : InputMethodService() {
                                 // commit on release.
                                 isTatweelRepeating = false
                             }
+                            isKeyRepeating -> {
+                                // The hold-repeat already invoked onClick
+                                // one or more times directly; don't also
+                                // fire it again on release, or lifting
+                                // the finger after a long hold would
+                                // delete one extra character.
+                                isKeyRepeating = false
+                            }
                             else -> {
                                 // Normal short tap - unchanged behavior:
                                 // letter rows pass their own onClick
@@ -1034,6 +1087,7 @@ class SecureInputMethodService : InputMethodService() {
                         popup = null
                         popupContent = null
                         isTatweelRepeating = false
+                        isKeyRepeating = false
                         true
                     }
                     else -> false

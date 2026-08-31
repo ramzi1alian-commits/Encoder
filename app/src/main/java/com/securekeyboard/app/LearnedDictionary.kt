@@ -165,11 +165,27 @@ object LearnedDictionary {
         return imported
     }
 
+    /**
+     * SECURITY FIX: this file used to be written as plain UTF-8 text.
+     * It is now encrypted at rest via LocalStorageCrypto (Android
+     * Keystore-backed AES-256-GCM key, never exportable from the
+     * Keystore) - see that class's doc for why. Reading/writing the
+     * TSV format itself (word\tcount\n) is unchanged; only the bytes
+     * that hit disk are now ciphertext instead of plaintext.
+     */
     private fun loadFromDisk(context: Context) {
         val file = File(context.filesDir, FILE_NAME)
         if (!file.exists()) return
         try {
-            BufferedReader(InputStreamReader(file.inputStream(), Charsets.UTF_8)).use { reader ->
+            val decrypted = LocalStorageCrypto.decrypt(file.readBytes())
+            if (decrypted == null) {
+                // Either corrupt, or a leftover plaintext file from
+                // before this fix - either way, don't try to parse
+                // ciphertext/garbage as TSV. Start fresh; the file gets
+                // rewritten (encrypted) on the next persist().
+                return
+            }
+            BufferedReader(InputStreamReader(decrypted.inputStream(), Charsets.UTF_8)).use { reader ->
                 reader.forEachLine { line ->
                     val tab = line.indexOf('\t')
                     if (tab <= 0) return@forEachLine
@@ -199,7 +215,7 @@ object LearnedDictionary {
                     for ((word, count) in counts) {
                         sb.append(word).append('\t').append(count).append('\n')
                     }
-                    out.write(sb.toString().toByteArray(Charsets.UTF_8))
+                    out.write(LocalStorageCrypto.encrypt(sb.toString().toByteArray(Charsets.UTF_8)))
                 }
             } catch (_: Exception) {
                 // Learning is a nice-to-have, not core functionality - a

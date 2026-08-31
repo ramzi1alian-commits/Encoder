@@ -40,15 +40,53 @@ object CryptoEngine {
 
     const val IV_LENGTH = 12
     const val SALT_LENGTH = 16
-    const val HEADER_LENGTH = 10 // 1 (version) + 1 (hasExpiry) + 8 (expiry epoch seconds)
-    const val FORMAT_VERSION: Byte = 2
+    const val KEY_LENGTH_BYTES = 32 // AES-256
 
-    // Argon2id parameters - 64 MB / 3 passes / 1 lane, OWASP's
-    // mobile-friendly baseline, well under a second on modern hardware.
-    private const val ARGON_MEMORY_KB = 65536
+    // --- Ciphertext header versions ---
+    //
+    // v2 (legacy): 1 (version) + 1 (hasExpiry) + 8 (expiry epoch seconds) = 10 bytes.
+    // Argon2id params for v2 messages are NOT stored in the header at all -
+    // they were hardcoded constants at encrypt time, so decrypting an old
+    // v2 message MUST reuse those exact old constants (LEGACY_V2_* below),
+    // never whatever the current defaults happen to be. This is why the
+    // version byte is now actually branched on, instead of just being
+    // read-and-ignored as before.
+    //
+    // v3 (current): v2 header + 4 (Argon2 memory in KB) + 1 (iterations) +
+    // 1 (parallelism) = 16 bytes. The KDF cost parameters travel WITH the
+    // message, so raising the defaults in a future release never breaks
+    // decrypting older v3 messages, and never requires another silent
+    // hardcoded-legacy-branch the way this v2->v3 change did.
+    const val HEADER_LENGTH_V2 = 10
+    const val HEADER_LENGTH_V3 = 16
+    const val FORMAT_VERSION: Byte = 3
+    private const val VERSION_V2: Byte = 2
+    private const val VERSION_V3: Byte = 3
+
+    // Argon2id parameters used for every NEW encryption. Raised from the
+    // previous 64 MB baseline to 256 MB: this app is fully offline and
+    // encrypt/decrypt is a rare, deliberate, foreground action (not a
+    // hot path like a login screen), so the extra ~1-2s and memory cost
+    // on modern phones is a good trade for meaningfully higher resistance
+    // to GPU/ASIC brute-forcing of the passphrase. Devices too old/low-RAM
+    // to comfortably allocate 256 MB can still fall back - see
+    // LOW_MEMORY_ARGON_MEMORY_KB below.
+    private const val ARGON_MEMORY_KB = 262144 // 256 MB
     private const val ARGON_ITERATIONS = 3
     private const val ARGON_PARALLELISM = 1
-    private const val KEY_LENGTH_BYTES = 32 // AES-256
+
+    // Fallback for constrained devices (old/low-RAM), still well above the
+    // previous 64 MB baseline. Chosen automatically by encrypt() based on
+    // Runtime.getRuntime().maxMemory() - see chooseArgonMemoryKb().
+    private const val REDUCED_ARGON_MEMORY_KB = 131072 // 128 MB
+
+    // Legacy parameters - ONLY ever used to decrypt old v2 ciphertexts
+    // that don't carry their own Argon2 params. Never used for encrypting
+    // anything new. Do not "clean these up"; removing them would make
+    // every message encrypted before this change permanently undecryptable.
+    private const val LEGACY_V2_ARGON_MEMORY_KB = 65536
+    private const val LEGACY_V2_ARGON_ITERATIONS = 3
+    private const val LEGACY_V2_ARGON_PARALLELISM = 1
 
     class ExpiredMessageException : Exception()
 
@@ -67,14 +105,20 @@ object CryptoEngine {
         return bytes
     }
 
-    fun deriveKey(passChars: CharArray, salt: ByteArray): ByteArray {
+    fun deriveKey(
+        passChars: CharArray,
+        salt: ByteArray,
+        memoryKb: Int = ARGON_MEMORY_KB,
+        iterations: Int = ARGON_ITERATIONS,
+        parallelism: Int = ARGON_PARALLELISM
+    ): ByteArray {
         val passBytes = charsToUtf8Bytes(passChars)
         try {
             val params = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
                 .withVersion(Argon2Parameters.ARGON2_VERSION_13)
-                .withIterations(ARGON_ITERATIONS)
-                .withMemoryAsKB(ARGON_MEMORY_KB)
-                .withParallelism(ARGON_PARALLELISM)
+                .withIterations(iterations)
+                .withMemoryAsKB(memoryKb)
+                .withParallelism(parallelism)
                 .withSalt(salt)
                 .build()
             val generator = Argon2BytesGenerator()
@@ -87,23 +131,43 @@ object CryptoEngine {
         }
     }
 
-    private fun buildHeader(hasExpiry: Boolean, expiryEpochSeconds: Long): ByteArray {
-        val buffer = ByteBuffer.allocate(HEADER_LENGTH)
+    /**
+     * Picks the Argon2id memory cost for a NEW encryption based on how
+     * much heap this process can actually use. Argon2id allocates its
+     * full memory cost as a single contiguous buffer; asking for 256 MB
+     * on a device/process that can't comfortably spare it risks an
+     * OutOfMemoryError on the encrypt button press instead of gracefully
+     * degrading. Still far above the old 64 MB baseline either way.
+     */
+    private fun chooseArgonMemoryKb(): Int {
+        val maxHeapKb = Runtime.getRuntime().maxMemory() / 1024L
+        // Require the chosen Argon2 cost to be a clear fraction of the
+        // available heap, not close to all of it (other allocations -
+        // the plaintext, UI, dictionaries - share the same heap).
+        return if (maxHeapKb > ARGON_MEMORY_KB * 4) ARGON_MEMORY_KB else REDUCED_ARGON_MEMORY_KB
+    }
+
+    private fun buildHeaderV3(hasExpiry: Boolean, expiryEpochSeconds: Long, memoryKb: Int): ByteArray {
+        val buffer = ByteBuffer.allocate(HEADER_LENGTH_V3)
         buffer.put(FORMAT_VERSION)
         buffer.put(if (hasExpiry) 1.toByte() else 0.toByte())
         buffer.putLong(expiryEpochSeconds)
+        buffer.putInt(memoryKb)
+        buffer.put(ARGON_ITERATIONS.toByte())
+        buffer.put(ARGON_PARALLELISM.toByte())
         return buffer.array()
     }
 
     fun encrypt(textChars: CharArray, passChars: CharArray, expirySeconds: Long?): String {
         val salt = ByteArray(SALT_LENGTH).also { SecureRandom().nextBytes(it) }
         val iv = ByteArray(IV_LENGTH).also { SecureRandom().nextBytes(it) }
-        val keyBytes = deriveKey(passChars, salt)
+        val memoryKb = chooseArgonMemoryKb()
+        val keyBytes = deriveKey(passChars, salt, memoryKb = memoryKb)
         val plainBytes = charsToUtf8Bytes(textChars)
         try {
             val hasExpiry = expirySeconds != null
             val expiryEpoch = if (hasExpiry) (System.currentTimeMillis() / 1000L) + expirySeconds!! else 0L
-            val header = buildHeader(hasExpiry, expiryEpoch)
+            val header = buildHeaderV3(hasExpiry, expiryEpoch, memoryKb)
 
             val key = SecretKeySpec(keyBytes, "AES")
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -126,13 +190,30 @@ object CryptoEngine {
      */
     fun decrypt(b64: String, passChars: CharArray): CharArray {
         val combined = Base64.decode(b64, Base64.NO_WRAP)
-        require(combined.size > HEADER_LENGTH + SALT_LENGTH + IV_LENGTH) { "ciphertext too short" }
+        require(combined.isNotEmpty()) { "ciphertext too short" }
 
-        val header = combined.copyOfRange(0, HEADER_LENGTH)
+        val headerLength = when (combined[0]) {
+            VERSION_V2 -> HEADER_LENGTH_V2
+            VERSION_V3 -> HEADER_LENGTH_V3
+            else -> throw IllegalArgumentException("unsupported ciphertext format version")
+        }
+        require(combined.size > headerLength + SALT_LENGTH + IV_LENGTH) { "ciphertext too short" }
+
+        val header = combined.copyOfRange(0, headerLength)
         val headerBuf = ByteBuffer.wrap(header)
-        headerBuf.get() // version - not currently branched on, reserved for future format changes
+        val version = headerBuf.get()
         val hasExpiry = headerBuf.get().toInt() == 1
         val expiryEpoch = headerBuf.long
+        // v2 messages never stored their own Argon2 params - they must be
+        // re-derived with the exact constants that were hardcoded when
+        // they were encrypted, regardless of today's defaults. v3 messages
+        // carry their own params, so raising the default in a future
+        // release can never break decrypting an older v3 message either.
+        val (memoryKb, iterations, parallelism) = if (version == VERSION_V3) {
+            Triple(headerBuf.int, headerBuf.get().toInt(), headerBuf.get().toInt())
+        } else {
+            Triple(LEGACY_V2_ARGON_MEMORY_KB, LEGACY_V2_ARGON_ITERATIONS, LEGACY_V2_ARGON_PARALLELISM)
+        }
 
         // Checked BEFORE spending time on the (deliberately expensive)
         // Argon2id key derivation below, so an expired message fails
@@ -141,10 +222,10 @@ object CryptoEngine {
             throw ExpiredMessageException()
         }
 
-        val salt = combined.copyOfRange(HEADER_LENGTH, HEADER_LENGTH + SALT_LENGTH)
-        val iv = combined.copyOfRange(HEADER_LENGTH + SALT_LENGTH, HEADER_LENGTH + SALT_LENGTH + IV_LENGTH)
-        val cipherBytes = combined.copyOfRange(HEADER_LENGTH + SALT_LENGTH + IV_LENGTH, combined.size)
-        val keyBytes = deriveKey(passChars, salt)
+        val salt = combined.copyOfRange(headerLength, headerLength + SALT_LENGTH)
+        val iv = combined.copyOfRange(headerLength + SALT_LENGTH, headerLength + SALT_LENGTH + IV_LENGTH)
+        val cipherBytes = combined.copyOfRange(headerLength + SALT_LENGTH + IV_LENGTH, combined.size)
+        val keyBytes = deriveKey(passChars, salt, memoryKb, iterations, parallelism)
         try {
             val key = SecretKeySpec(keyBytes, "AES")
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
@@ -183,6 +264,6 @@ object CryptoEngine {
         } catch (_: Exception) {
             return false
         }
-        return decoded.size > HEADER_LENGTH + SALT_LENGTH + IV_LENGTH
+        return decoded.size > HEADER_LENGTH_V2 + SALT_LENGTH + IV_LENGTH
     }
 }

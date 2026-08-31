@@ -114,11 +114,17 @@ object PhraseDictionary {
         }.apply { isDaemon = true }.start()
     }
 
+    /**
+     * SECURITY FIX: this file used to be written as plain UTF-8 text -
+     * see LocalStorageCrypto's doc. It is now encrypted at rest with a
+     * Keystore-backed key; the TSV format itself is unchanged.
+     */
     private fun loadFromDisk(context: Context) {
         val file = File(context.filesDir, FILE_NAME)
         if (!file.exists()) return
         try {
-            BufferedReader(InputStreamReader(file.inputStream(), Charsets.UTF_8)).use { reader ->
+            val decrypted = LocalStorageCrypto.decrypt(file.readBytes()) ?: return
+            BufferedReader(InputStreamReader(decrypted.inputStream(), Charsets.UTF_8)).use { reader ->
                 reader.forEachLine { line ->
                     val tab = line.indexOf('\t')
                     if (tab <= 0) return@forEachLine
@@ -142,7 +148,7 @@ object PhraseDictionary {
                     for ((phrase, count) in counts) {
                         sb.append(phrase).append('\t').append(count).append('\n')
                     }
-                    out.write(sb.toString().toByteArray(Charsets.UTF_8))
+                    out.write(LocalStorageCrypto.encrypt(sb.toString().toByteArray(Charsets.UTF_8)))
                 }
             } catch (_: Exception) {
                 // Learning is a nice-to-have, not core functionality - a
