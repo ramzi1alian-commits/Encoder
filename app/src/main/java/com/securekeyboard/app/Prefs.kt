@@ -16,6 +16,7 @@ object Prefs {
     private const val KEY_DENSITY = "density"
     private const val KEY_KEYBOARD_HEIGHT = "keyboard_height_dp"
     private const val KEY_AUTOCORRECT = "autocorrect_enabled"
+    private const val KEY_QUICK_CRYPTO_MODE = "quick_crypto_uses_key_exchange"
 
     // Reasonable dp bounds for a comfortable-but-compact keyboard row.
     // (For reference: 1cm on a phone screen is roughly 63dp - the slider
@@ -95,6 +96,29 @@ object Prefs {
     fun setAutocorrectEnabled(context: Context, enabled: Boolean) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_AUTOCORRECT, enabled).apply()
+    }
+
+    /**
+     * Which key material the KEYBOARD's own quick-encrypt/quick-decrypt
+     * panel (SecureInputMethodService.buildCryptoPage/buildSecureComposePage)
+     * should use when it needs to ENCRYPT something: true = the X25519
+     * key-exchange shared key (KeyExchangeManager), false = the
+     * passphrase currently held in SessionKeyStore. Persisted (not
+     * session-only like SessionKeyStore) because the X25519 identity and
+     * saved peer key are themselves persistent, not time-limited - there
+     * is no equivalent "session" concept to tie this to. Decryption never
+     * needs this flag: CryptoEngine.isKeyExchangeCiphertext() already
+     * tells the keyboard which path a given ciphertext needs, so it picks
+     * automatically instead of trusting this switch.
+     */
+    fun quickCryptoUsesKeyExchange(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_QUICK_CRYPTO_MODE, false)
+    }
+
+    fun setQuickCryptoUsesKeyExchange(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_QUICK_CRYPTO_MODE, enabled).apply()
     }
 
     // 0 = default sans-serif, 1 = serif, 2 = monospace

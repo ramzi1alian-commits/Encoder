@@ -256,7 +256,31 @@
                 style="@style/SecondaryButton"
                 android:layout_width="match_parent"
                 android:layout_height="44dp"
+                android:layout_marginBottom="14dp"
                 android:text="@string/key_exchange_regenerate_btn" />
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginBottom="14dp"
+                android:background="@color/navy_700" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/switchQuickUsesKeyExchange"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text="@string/quick_crypto_key_exchange_toggle_label"
+                android:textColor="@color/slate_200"
+                android:textSize="13sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/quick_crypto_key_exchange_desc"
+                android:textColor="@color/slate_400"
+                android:textSize="11sp"
+                android:lineSpacingExtra="2dp" />
         </LinearLayout>
 
         <TextView

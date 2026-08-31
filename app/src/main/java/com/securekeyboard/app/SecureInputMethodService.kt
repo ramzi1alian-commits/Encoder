@@ -568,8 +568,21 @@ class SecureInputMethodService : InputMethodService() {
             return
         }
 
+        // Which key material OUTGOING (encrypt) actions will use - see
+        // Prefs.quickCryptoUsesKeyExchange's doc. Decryption doesn't need
+        // this: it auto-detects from the ciphertext itself (see
+        // decryptClipboard), so its own "ready" check below considers
+        // BOTH sources rather than only the currently selected one.
+        val quickUsesKeyExchange = Prefs.quickCryptoUsesKeyExchange(this)
+        val sessionActive = SessionKeyStore.isActive()
+        val peerKeyReady = KeyExchangeManager.hasPeerPublicKey(this)
+        val outgoingReady = if (quickUsesKeyExchange) peerKeyReady else sessionActive
+        val decryptReady = sessionActive || peerKeyReady
+
         val statusView = TextView(this).apply {
-            text = if (SessionKeyStore.isActive()) {
+            text = if (quickUsesKeyExchange) {
+                if (peerKeyReady) getString(R.string.key_exchange_section_title) else getString(R.string.crypto_panel_no_peer_key)
+            } else if (sessionActive) {
                 getString(R.string.session_key_active, SessionKeyStore.remainingMinutes())
             } else {
                 getString(R.string.crypto_panel_no_session)
@@ -582,10 +595,8 @@ class SecureInputMethodService : InputMethodService() {
         }
         root.addView(statusView)
 
-        val sessionActive = SessionKeyStore.isActive()
-
         val composeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        composeRow.addView(makeKey(getString(R.string.crypto_panel_secure_compose_btn), weight = 1f, heightDp = heightDp, accented = sessionActive) {
+        composeRow.addView(makeKey(getString(R.string.crypto_panel_secure_compose_btn), weight = 1f, heightDp = heightDp, accented = outgoingReady) {
             showingSecureCompose = true
             rebuildKeyboardView()
         })
@@ -602,13 +613,13 @@ class SecureInputMethodService : InputMethodService() {
         root.addView(composeDesc)
 
         val encryptRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        encryptRow.addView(makeKey(getString(R.string.crypto_panel_encrypt_btn), weight = 1f, heightDp = heightDp, accented = sessionActive) {
+        encryptRow.addView(makeKey(getString(R.string.crypto_panel_encrypt_btn), weight = 1f, heightDp = heightDp, accented = outgoingReady) {
             encryptFieldAndInject()
         })
         root.addView(encryptRow)
 
         val decryptRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        decryptRow.addView(makeKey(getString(R.string.crypto_panel_decrypt_btn), weight = 1f, heightDp = heightDp, accented = sessionActive) {
+        decryptRow.addView(makeKey(getString(R.string.crypto_panel_decrypt_btn), weight = 1f, heightDp = heightDp, accented = decryptReady) {
             decryptClipboard()
         })
         root.addView(decryptRow)
@@ -716,92 +727,187 @@ class SecureInputMethodService : InputMethodService() {
         root.addView(bottomRow)
     }
 
-    /** Encrypts composeBuffer and commits ONLY the ciphertext, in one shot, to the active field. */
+    /**
+     * Encrypts composeBuffer and commits ONLY the ciphertext, in one shot,
+     * to the active field. Same mode switch as encryptFieldAndInject:
+     * Prefs.quickCryptoUsesKeyExchange decides passphrase vs X25519.
+     */
     private fun sendSecureCompose() {
         if (composeBuffer.isEmpty()) {
             android.widget.Toast.makeText(this, R.string.crypto_panel_empty_field_toast, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
+        val cipherText = if (Prefs.quickCryptoUsesKeyExchange(this)) {
+            encryptComposeBufferWithKeyExchange() ?: return
+        } else {
+            encryptComposeBufferWithPassphrase() ?: return
+        }
+        // The ONLY thing that ever reaches the target app's field
+        // from this whole page.
+        currentInputConnection?.commitText(cipherText, 1)
+        clearSecureCompose()
+        // FIX (reported bug): this used to fall all the way back to
+        // showingCrypto = false, which - since clearSecureCompose()
+        // already turned showingSecureCompose off too - left BOTH
+        // page flags false and dropped straight into the ordinary
+        // (non-secure) letters page. That meant a single "إرسال" tap
+        // silently kicked the user out of the whole secure flow.
+        // Setting showingCrypto = true instead keeps them on the
+        // crypto panel (which already has its own تشفير/فك التشفير
+        // buttons) after sending - the secure flow is only actually
+        // left when the user explicitly taps "ابجد/ABC" there.
+        showingCrypto = true
+        currentWord.clear()
+        lastFinishedWord = null
+        rebuildKeyboardView()
+    }
+
+    /** Returns the ciphertext, or null (after showing a toast) if no session passphrase is active. */
+    private fun encryptComposeBufferWithPassphrase(): String? {
         val passphrase = SessionKeyStore.get()
         if (passphrase == null) {
             android.widget.Toast.makeText(this, R.string.crypto_panel_no_session, android.widget.Toast.LENGTH_SHORT).show()
-            return
+            return null
         }
         try {
             val textChars = composeBuffer.toString().toCharArray()
-            val cipherText = try {
+            return try {
                 CryptoEngine.encrypt(textChars, passphrase, expirySeconds = null)
             } finally {
                 java.util.Arrays.fill(textChars, ' ')
             }
-            // The ONLY thing that ever reaches the target app's field
-            // from this whole page.
-            currentInputConnection?.commitText(cipherText, 1)
-            clearSecureCompose()
-            // FIX (reported bug): this used to fall all the way back to
-            // showingCrypto = false, which - since clearSecureCompose()
-            // already turned showingSecureCompose off too - left BOTH
-            // page flags false and dropped straight into the ordinary
-            // (non-secure) letters page. That meant a single "إرسال" tap
-            // silently kicked the user out of the whole secure flow.
-            // Setting showingCrypto = true instead keeps them on the
-            // crypto panel (which already has its own تشفير/فك التشفير
-            // buttons) after sending - the secure flow is only actually
-            // left when the user explicitly taps "ابجد/ABC" there.
-            showingCrypto = true
-            currentWord.clear()
-            lastFinishedWord = null
-            rebuildKeyboardView()
         } finally {
             java.util.Arrays.fill(passphrase, ' ')
         }
     }
 
+    /** Returns the ciphertext, or null (after showing a toast) if no peer key is saved / the identity is unavailable. */
+    private fun encryptComposeBufferWithKeyExchange(): String? {
+        if (!KeyExchangeManager.hasPeerPublicKey(this)) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_no_peer_key, android.widget.Toast.LENGTH_SHORT).show()
+            return null
+        }
+        val sharedKey = try {
+            KeyExchangeManager.deriveSharedAesKey(this)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_key_exchange_unavailable, android.widget.Toast.LENGTH_SHORT).show()
+            return null
+        }
+        try {
+            val textChars = composeBuffer.toString().toCharArray()
+            return try {
+                CryptoEngine.encryptWithKey(textChars, sharedKey, expirySeconds = null)
+            } finally {
+                java.util.Arrays.fill(textChars, ' ')
+            }
+        } finally {
+            java.util.Arrays.fill(sharedKey, 0)
+        }
+    }
+
     /**
      * Reads the ENTIRE content of the currently focused field (not just
-     * text around the cursor - see ExtractedText below), encrypts it
-     * with the active session passphrase, and replaces the field's
-     * content with the ciphertext directly via the InputConnection. No
-     * expiry is attached here (that option only exists on the full
-     * Encrypt screen) and the plaintext never touches the clipboard.
+     * text around the cursor - see ExtractedText below), encrypts it,
+     * and replaces the field's content with the ciphertext directly via
+     * the InputConnection. No expiry is attached here (that option only
+     * exists on the full Encrypt screen) and the plaintext never touches
+     * the clipboard.
+     *
+     * Which key material is used is decided by Prefs.quickCryptoUsesKeyExchange
+     * (toggled on the full Encrypt screen) - either the X25519 shared key
+     * (KeyExchangeManager) or the passphrase currently held in
+     * SessionKeyStore. Unlike decryption, encryption can't auto-detect
+     * this: there's no ciphertext yet to inspect, so the user's chosen
+     * mode has to be trusted.
      */
     private fun encryptFieldAndInject() {
+        if (Prefs.quickCryptoUsesKeyExchange(this)) {
+            encryptFieldAndInjectWithKeyExchange()
+        } else {
+            encryptFieldAndInjectWithPassphrase()
+        }
+    }
+
+    private fun encryptFieldAndInjectWithPassphrase() {
         val passphrase = SessionKeyStore.get()
         if (passphrase == null) {
             android.widget.Toast.makeText(this, R.string.crypto_panel_no_session, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         try {
-            val ic = currentInputConnection ?: return
-            val extracted = ic.getExtractedText(ExtractedTextRequest(), 0)
-            val fullText = extracted?.text?.toString().orEmpty()
-            if (fullText.isEmpty()) {
-                android.widget.Toast.makeText(this, R.string.crypto_panel_empty_field_toast, android.widget.Toast.LENGTH_SHORT).show()
-                return
-            }
+            val fullText = extractedFieldTextOrToast() ?: return
             val textChars = fullText.toCharArray()
             val cipherText = try {
                 CryptoEngine.encrypt(textChars, passphrase, expirySeconds = null)
             } finally {
                 java.util.Arrays.fill(textChars, ' ')
             }
-            ic.setSelection(0, fullText.length)
-            ic.commitText(cipherText, 1)
-            // The field now holds ciphertext, not a word being typed.
-            currentWord.clear()
-            lastFinishedWord = null
+            injectCipherTextReplacingField(cipherText, fullText.length)
         } finally {
             java.util.Arrays.fill(passphrase, ' ')
         }
     }
 
+    private fun encryptFieldAndInjectWithKeyExchange() {
+        if (!KeyExchangeManager.hasPeerPublicKey(this)) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_no_peer_key, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sharedKey = try {
+            KeyExchangeManager.deriveSharedAesKey(this)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_key_exchange_unavailable, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val fullText = extractedFieldTextOrToast() ?: return
+            val textChars = fullText.toCharArray()
+            val cipherText = try {
+                CryptoEngine.encryptWithKey(textChars, sharedKey, expirySeconds = null)
+            } finally {
+                java.util.Arrays.fill(textChars, ' ')
+            }
+            injectCipherTextReplacingField(cipherText, fullText.length)
+        } finally {
+            java.util.Arrays.fill(sharedKey, 0)
+        }
+    }
+
+    /** Shared by both encryptFieldAndInject* variants: reads the focused field, or toasts+returns null if it's empty. */
+    private fun extractedFieldTextOrToast(): String? {
+        val ic = currentInputConnection ?: return null
+        val extracted = ic.getExtractedText(ExtractedTextRequest(), 0)
+        val fullText = extracted?.text?.toString().orEmpty()
+        if (fullText.isEmpty()) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_empty_field_toast, android.widget.Toast.LENGTH_SHORT).show()
+            return null
+        }
+        return fullText
+    }
+
+    /** Shared by both encryptFieldAndInject* variants: replaces the field's whole content with the ciphertext. */
+    private fun injectCipherTextReplacingField(cipherText: String, originalLength: Int) {
+        val ic = currentInputConnection ?: return
+        ic.setSelection(0, originalLength)
+        ic.commitText(cipherText, 1)
+        // The field now holds ciphertext, not a word being typed.
+        currentWord.clear()
+        lastFinishedWord = null
+    }
+
     /**
      * Reads the system clipboard, and - only if it looks like something
      * this app itself produced (see CryptoEngine.looksLikeCiphertext) -
-     * attempts to decrypt it with the active session passphrase. Shows
-     * the result inline in this same page (see cryptoDecryptedText
-     * above); never writes the decrypted text into any field, clipboard,
-     * or file.
+     * attempts to decrypt it. Shows the result inline in this same page
+     * (see cryptoDecryptedText above); never writes the decrypted text
+     * into any field, clipboard, or file.
+     *
+     * Unlike encryption, decryption doesn't need Prefs.quickCryptoUsesKeyExchange
+     * to pick a mode: CryptoEngine.isKeyExchangeCiphertext() reads the
+     * ciphertext's own version byte, so a v4 (key-exchange) message uses
+     * the shared X25519 key and any other recognized version uses the
+     * session passphrase, automatically - the toggle only controls what
+     * NEW outgoing messages are encrypted with.
      *
      * Called both from the crypto panel's own "فك التشفير" button AND
      * directly from the main keyboard row's 🔓 shortcut key (see
@@ -811,35 +917,71 @@ class SecureInputMethodService : InputMethodService() {
      * show result, without detouring through the crypto menu first.
      */
     private fun decryptClipboard() {
+        val cm = getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager
+        val clip = cm?.primaryClip
+        val clipText = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).text?.toString() else null
+        if (clipText.isNullOrBlank() || !CryptoEngine.looksLikeCiphertext(clipText)) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_no_ciphertext_toast, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (CryptoEngine.isKeyExchangeCiphertext(clipText)) {
+            decryptWithKeyExchangeAndShow(clipText)
+        } else {
+            decryptWithPassphraseAndShow(clipText)
+        }
+    }
+
+    private fun decryptWithPassphraseAndShow(clipText: String) {
         val passphrase = SessionKeyStore.get()
         if (passphrase == null) {
             android.widget.Toast.makeText(this, R.string.crypto_panel_no_session, android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         try {
-            val cm = getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager
-            val clip = cm?.primaryClip
-            val clipText = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).text?.toString() else null
-            if (clipText.isNullOrBlank() || !CryptoEngine.looksLikeCiphertext(clipText)) {
-                android.widget.Toast.makeText(this, R.string.crypto_panel_no_ciphertext_toast, android.widget.Toast.LENGTH_SHORT).show()
-                return
-            }
+            val plainChars = CryptoEngine.decrypt(clipText, passphrase)
             try {
-                val plainChars = CryptoEngine.decrypt(clipText, passphrase)
-                try {
-                    cryptoDecryptedText = String(plainChars)
-                } finally {
-                    java.util.Arrays.fill(plainChars, ' ')
-                }
-                showingCrypto = true
-                rebuildKeyboardView()
-            } catch (e: CryptoEngine.ExpiredMessageException) {
-                android.widget.Toast.makeText(this, R.string.crypto_panel_expired_toast, android.widget.Toast.LENGTH_SHORT).show()
-            } catch (e: Exception) {
-                android.widget.Toast.makeText(this, R.string.crypto_panel_decrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
+                cryptoDecryptedText = String(plainChars)
+            } finally {
+                java.util.Arrays.fill(plainChars, ' ')
             }
+            showingCrypto = true
+            rebuildKeyboardView()
+        } catch (e: CryptoEngine.ExpiredMessageException) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_expired_toast, android.widget.Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_decrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
         } finally {
             java.util.Arrays.fill(passphrase, ' ')
+        }
+    }
+
+    private fun decryptWithKeyExchangeAndShow(clipText: String) {
+        if (!KeyExchangeManager.hasPeerPublicKey(this)) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_no_peer_key, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sharedKey = try {
+            KeyExchangeManager.deriveSharedAesKey(this)
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_key_exchange_unavailable, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val plainChars = CryptoEngine.decryptWithKey(clipText, sharedKey)
+            try {
+                cryptoDecryptedText = String(plainChars)
+            } finally {
+                java.util.Arrays.fill(plainChars, ' ')
+            }
+            showingCrypto = true
+            rebuildKeyboardView()
+        } catch (e: CryptoEngine.ExpiredMessageException) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_expired_toast, android.widget.Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_decrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
+        } finally {
+            java.util.Arrays.fill(sharedKey, 0)
         }
     }
 

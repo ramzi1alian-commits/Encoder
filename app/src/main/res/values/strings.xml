@@ -125,6 +125,10 @@
     <string name="fingerprint_label">بصمة التحقق: %1$s (قارنها تليفونيا مع صاحبك قبل أي استخدام حساس)</string>
     <string name="key_exchange_no_peer_error">احفظ مفتاح صاحبك العام أولا قبل التشفير/فك التشفير بهذا الوضع</string>
     <string name="key_exchange_unavailable_error">تعذّر توليد مفتاح الجهاز (مشكلة في مخزن مفاتيح النظام) - وضع تبادل المفاتيح غير متاح على هذا الجهاز حاليا. وضع كلمة السر لا يزال يعمل عاديا</string>
+    <string name="quick_crypto_key_exchange_toggle_label">استخدام تبادل المفاتيح في لوحة التشفير السريعة بالكيبورد</string>
+    <string name="quick_crypto_key_exchange_desc">لو مفعّل، زرا \"شفّر النص الحالي\" و\"وضع الكتابة الآمنة\" بالكيبورد هيستخدموا المفتاح المشترك بدل كلمة السر (لازم تكون حافظ مفتاح صاحبك فوق أولا). فك التشفير من الكيبورد بيكتشف الصيغة تلقائيا سواء كلمة سر أو تبادل مفاتيح، من غير ما تحتاج تبدّل هذا الخيار.</string>
+    <string name="crypto_panel_no_peer_key">فعّل تبادل المفاتيح واحفظ مفتاح صاحبك أولا من شاشة التشفير الكاملة</string>
+    <string name="crypto_panel_key_exchange_unavailable">تعذّر تجهيز مفتاح التبادل على هذا الجهاز - جرّب وضع كلمة السر بدلا منه</string>
     <string name="key_exchange_wrong_mode_error">النص ده متشفر بوضع تبادل المفاتيح - فعّل مفتاح المفتاحين الثنائي بالأعلى بدل كلمة السر</string>
     <string name="key_exchange_regenerate_btn">توليد مفتاح جديد لي (يلغي التبادل مع الجميع)</string>
     <string name="key_exchange_regenerate_confirm">توليد مفتاح جديد هيلغي القدرة على فك تشفير أي رسائل قديمة اتبادلتها بالمفتاح الحالي مع أي حد، ولازم تبعت مفتاحك الجديد لكل الأطراف تاني. متأكد؟</string>

@@ -497,6 +497,19 @@ class EncryptActivity : AppCompatActivity() {
                 .show()
         }
 
+        // Tells the KEYBOARD's own quick-encrypt panel and secure-compose
+        // "send" button (SecureInputMethodService) which key material to
+        // use for OUTGOING encryption - persisted like the identity/peer
+        // key themselves (not session-limited, see Prefs doc). Decryption
+        // never needs this: the keyboard auto-detects passphrase vs
+        // key-exchange ciphertext from the message itself.
+        findViewById<MaterialSwitch>(R.id.switchQuickUsesKeyExchange).apply {
+            isChecked = Prefs.quickCryptoUsesKeyExchange(this@EncryptActivity)
+            setOnCheckedChangeListener { _, checked ->
+                Prefs.setQuickCryptoUsesKeyExchange(this@EncryptActivity, checked)
+            }
+        }
+
         ThemeUtil.tintPrimary(this, findViewById(R.id.btnSavePeerKey))
         ThemeUtil.tintOutline(
             this,
