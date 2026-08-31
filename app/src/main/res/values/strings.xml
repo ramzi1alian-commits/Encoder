@@ -108,6 +108,29 @@
     <string name="about_section_control_title">التحكم كامل في إيدك</string>
     <string name="about_section_control_body">تقدر تمسح القاموس الشخصي أو الجمل المحفوظة في أي وقت من الإعدادات، وتقدر كمان تصدّرهم لملف تحتفظ بيه بنفسك أو تستوردهم على جهاز تاني - بدون أي تدخل من التطبيق في إن الملف ده يروح فين.</string>
 
+    <string name="key_exchange_toggle_label">استخدام مفتاح ثنائي (X25519) بدل كلمة السر</string>
+    <string name="key_exchange_section_title">تبادل المفاتيح</string>
+    <string name="key_exchange_explainer">كل جهاز عنده مفتاحه العام والخاص. ابعت مفتاحك العام لصاحبك (واتساب، أي حاجة - مش سر)، وهو يبعتلك مفتاحه العام بنفس الطريقة، والصقه تحت. بعد كده تقدروا تشفروا وتفكوا لبعض في الاتجاهين من غير ما تتفقوا على كلمة سر مشتركة.</string>
+    <string name="my_public_key_label">مفتاحك العام (شاركه مع صاحبك)</string>
+    <string name="copy_public_key_btn">نسخ مفتاحي العام</string>
+    <string name="public_key_copied_toast">تم نسخ مفتاحك العام</string>
+    <string name="peer_public_key_label">مفتاح صاحبك (الصقه هنا)</string>
+    <string name="peer_public_key_hint">الصق المفتاح العام اللي استلمته</string>
+    <string name="save_peer_key_btn">حفظ مفتاح الطرف الآخر</string>
+    <string name="clear_peer_key_btn">مسح مفتاح الطرف الآخر</string>
+    <string name="peer_key_saved_toast">تم حفظ مفتاح صاحبك</string>
+    <string name="peer_key_cleared_toast">تم مسح مفتاح الطرف الآخر</string>
+    <string name="peer_key_invalid_error">النص ده مش مفتاح عام صالح - تأكد إنك لصقت المفتاح كامل زي ما وصلك بالظبط</string>
+    <string name="peer_key_missing_status">لسه محفوظش مفتاح لصاحبك</string>
+    <string name="fingerprint_label">بصمة التحقق: %1$s (قارنها تليفونيا مع صاحبك قبل أي استخدام حساس)</string>
+    <string name="key_exchange_no_peer_error">احفظ مفتاح صاحبك العام أولا قبل التشفير/فك التشفير بهذا الوضع</string>
+    <string name="key_exchange_wrong_mode_error">النص ده متشفر بوضع تبادل المفاتيح - فعّل مفتاح المفتاحين الثنائي بالأعلى بدل كلمة السر</string>
+    <string name="key_exchange_regenerate_btn">توليد مفتاح جديد لي (يلغي التبادل مع الجميع)</string>
+    <string name="key_exchange_regenerate_confirm">توليد مفتاح جديد هيلغي القدرة على فك تشفير أي رسائل قديمة اتبادلتها بالمفتاح الحالي مع أي حد، ولازم تبعت مفتاحك الجديد لكل الأطراف تاني. متأكد؟</string>
+    <string name="key_exchange_regenerate_confirm_yes">أيوه، ولّد مفتاح جديد</string>
+    <string name="key_exchange_regenerate_confirm_no">إلغاء</string>
+    <string name="key_exchange_regenerated_toast">تم توليد مفتاح جديد</string>
+
     <string name="use_as_session_key_btn">استخدم كمفتاح جلسة (٣٠ دقيقة)</string>
     <string name="session_key_inactive">لا يوجد مفتاح جلسة نشط حاليا. لما تفعّله، هتقدر تشفّر وتفك التشفير من داخل الكيبورد نفسه بدون ما تفتح هذه الشاشة كل مرة.</string>
     <string name="session_key_active">مفتاح الجلسة نشط - متبقي %1$d دقيقة تقريبا. محفوظ في ذاكرة الجهاز المؤقتة فقط، مش على القرص.</string>

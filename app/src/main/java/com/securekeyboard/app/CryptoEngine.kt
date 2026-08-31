@@ -57,11 +57,22 @@ object CryptoEngine {
     // message, so raising the defaults in a future release never breaks
     // decrypting older v3 messages, and never requires another silent
     // hardcoded-legacy-branch the way this v2->v3 change did.
+    // v4 (key-exchange mode): 1 (version) + 1 (hasExpiry) + 8 (expiry
+    // epoch seconds) = 10 bytes - same layout as v2, but this version
+    // number means "the AES key was NOT derived from a passphrase at
+    // all", so there is no salt and no Argon2 params anywhere in this
+    // format: the caller already has a ready-made 32-byte AES key (see
+    // KeyExchangeManager.deriveSharedAesKey) from an X25519 exchange.
+    // encryptWithKey()/decryptWithKey() below are the only entry points
+    // that produce/consume this version - the passphrase-based
+    // encrypt()/decrypt() above deliberately do not accept it.
     const val HEADER_LENGTH_V2 = 10
     const val HEADER_LENGTH_V3 = 16
+    const val HEADER_LENGTH_V4 = 10
     const val FORMAT_VERSION: Byte = 3
     private const val VERSION_V2: Byte = 2
     private const val VERSION_V3: Byte = 3
+    private const val VERSION_V4: Byte = 4
 
     // Argon2id parameters used for every NEW encryption. Raised from the
     // previous 64 MB baseline to 256 MB: this app is fully offline and
@@ -255,6 +266,11 @@ object CryptoEngine {
      * WORTH attempting to decrypt (so it can say "no encrypted message
      * found" instead of running the semi-expensive Argon2id path on
      * whatever unrelated text happens to be on the clipboard).
+     *
+     * Branches on the version byte (like decrypt() itself) rather than
+     * one fixed minimum size, since v4 (key-exchange) ciphertexts carry
+     * no salt and so are legitimately shorter than the minimum a
+     * passphrase-based v2/v3 message could ever be.
      */
     fun looksLikeCiphertext(text: String): Boolean {
         val trimmed = text.trim()
@@ -264,6 +280,105 @@ object CryptoEngine {
         } catch (_: Exception) {
             return false
         }
-        return decoded.size > HEADER_LENGTH_V2 + SALT_LENGTH + IV_LENGTH
+        if (decoded.isEmpty()) return false
+        val minSize = when (decoded[0]) {
+            VERSION_V2 -> HEADER_LENGTH_V2 + SALT_LENGTH + IV_LENGTH
+            VERSION_V3 -> HEADER_LENGTH_V3 + SALT_LENGTH + IV_LENGTH
+            VERSION_V4 -> HEADER_LENGTH_V4 + IV_LENGTH
+            else -> return false
+        }
+        return decoded.size > minSize
+    }
+
+    /**
+     * True if [text] decodes as a v4 (X25519 key-exchange) ciphertext -
+     * lets callers (the Encrypt screen, the keyboard's quick-decrypt
+     * panel) pick decryptWithKey() instead of decrypt() without having
+     * to duplicate the header-parsing logic themselves.
+     */
+    fun isKeyExchangeCiphertext(text: String): Boolean {
+        val decoded = try {
+            Base64.decode(text.trim(), Base64.NO_WRAP)
+        } catch (_: Exception) {
+            return false
+        }
+        return decoded.isNotEmpty() && decoded[0] == VERSION_V4
+    }
+
+    private fun buildHeaderV4(hasExpiry: Boolean, expiryEpochSeconds: Long): ByteArray {
+        val buffer = ByteBuffer.allocate(HEADER_LENGTH_V4)
+        buffer.put(VERSION_V4)
+        buffer.put(if (hasExpiry) 1.toByte() else 0.toByte())
+        buffer.putLong(expiryEpochSeconds)
+        return buffer.array()
+    }
+
+    /**
+     * Same AES-256-GCM scheme as encrypt(), but for X25519 key-exchange
+     * mode (see KeyExchangeManager): [keyBytes] is already a ready-made
+     * 32-byte AES key derived from an ECDH agreement + HKDF, not
+     * something typed by the user - so unlike encrypt(), there is no
+     * Argon2id step, no salt, and no per-message KDF cost header. Only
+     * a version/expiry header, a fresh random IV, and the ciphertext.
+     */
+    fun encryptWithKey(textChars: CharArray, keyBytes: ByteArray, expirySeconds: Long?): String {
+        require(keyBytes.size == KEY_LENGTH_BYTES) { "shared key must be $KEY_LENGTH_BYTES bytes" }
+        val iv = ByteArray(IV_LENGTH).also { SecureRandom().nextBytes(it) }
+        val plainBytes = charsToUtf8Bytes(textChars)
+        try {
+            val hasExpiry = expirySeconds != null
+            val expiryEpoch = if (hasExpiry) (System.currentTimeMillis() / 1000L) + expirySeconds!! else 0L
+            val header = buildHeaderV4(hasExpiry, expiryEpoch)
+
+            val key = SecretKeySpec(keyBytes, "AES")
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
+            cipher.updateAAD(header)
+            val cipherBytes = cipher.doFinal(plainBytes)
+
+            val combined = header + iv + cipherBytes
+            return Base64.encodeToString(combined, Base64.NO_WRAP)
+        } finally {
+            Arrays.fill(plainBytes, 0)
+        }
+    }
+
+    /**
+     * Reverses encryptWithKey(). Deliberately separate from decrypt()
+     * (rather than one function branching on version) so a caller can
+     * never accidentally pass a typed passphrase where a derived key
+     * is required, or vice versa - the two modes have different
+     * ingredients even though they share the same AES-GCM core.
+     */
+    fun decryptWithKey(b64: String, keyBytes: ByteArray): CharArray {
+        require(keyBytes.size == KEY_LENGTH_BYTES) { "shared key must be $KEY_LENGTH_BYTES bytes" }
+        val combined = Base64.decode(b64, Base64.NO_WRAP)
+        require(combined.isNotEmpty() && combined[0] == VERSION_V4) { "not a key-exchange ciphertext" }
+        require(combined.size > HEADER_LENGTH_V4 + IV_LENGTH) { "ciphertext too short" }
+
+        val header = combined.copyOfRange(0, HEADER_LENGTH_V4)
+        val headerBuf = ByteBuffer.wrap(header)
+        headerBuf.get() // version byte, already checked above
+        val hasExpiry = headerBuf.get().toInt() == 1
+        val expiryEpoch = headerBuf.long
+        if (hasExpiry && System.currentTimeMillis() / 1000L > expiryEpoch) {
+            throw ExpiredMessageException()
+        }
+
+        val iv = combined.copyOfRange(HEADER_LENGTH_V4, HEADER_LENGTH_V4 + IV_LENGTH)
+        val cipherBytes = combined.copyOfRange(HEADER_LENGTH_V4 + IV_LENGTH, combined.size)
+        val key = SecretKeySpec(keyBytes, "AES")
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
+        cipher.updateAAD(header)
+        val plainBytes = cipher.doFinal(cipherBytes)
+        try {
+            val charBuffer = Charsets.UTF_8.decode(ByteBuffer.wrap(plainBytes))
+            val chars = CharArray(charBuffer.remaining())
+            charBuffer.get(chars)
+            return chars
+        } finally {
+            Arrays.fill(plainBytes, 0)
+        }
     }
 }

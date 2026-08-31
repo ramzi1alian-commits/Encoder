@@ -19,7 +19,9 @@ import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.materialswitch.MaterialSwitch
 import java.io.File
 import java.security.SecureRandom
 import java.util.Arrays
@@ -74,6 +76,12 @@ class EncryptActivity : AppCompatActivity() {
     private lateinit var keyStrengthHint: TextView
     private lateinit var rootWarningText: TextView
     private lateinit var sessionKeyStatus: TextView
+    private lateinit var switchKeyExchangeMode: MaterialSwitch
+    private lateinit var keyExchangeCard: LinearLayout
+    private lateinit var myPublicKeyText: TextView
+    private lateinit var myFingerprintText: TextView
+    private lateinit var inputPeerPublicKey: EditText
+    private lateinit var peerKeyStatusText: TextView
 
     private val clipboardHandler = Handler(Looper.getMainLooper())
     private var clipboardClearRunnable: Runnable? = null
@@ -121,6 +129,14 @@ class EncryptActivity : AppCompatActivity() {
         keyStrengthHint = findViewById(R.id.keyStrengthHint)
         rootWarningText = findViewById(R.id.rootWarningText)
         sessionKeyStatus = findViewById(R.id.sessionKeyStatus)
+        switchKeyExchangeMode = findViewById(R.id.switchKeyExchangeMode)
+        keyExchangeCard = findViewById(R.id.keyExchangeCard)
+        myPublicKeyText = findViewById(R.id.myPublicKeyText)
+        myFingerprintText = findViewById(R.id.myFingerprintText)
+        inputPeerPublicKey = findViewById(R.id.inputPeerPublicKey)
+        peerKeyStatusText = findViewById(R.id.peerKeyStatusText)
+
+        setUpKeyExchangeUi()
 
         if (RootCheck.looksRooted()) {
             rootWarningText.text = getString(R.string.warn_root_detected)
@@ -162,29 +178,56 @@ class EncryptActivity : AppCompatActivity() {
             // but missed for the message content itself. Now read as a
             // CharArray the same way the key already is.
             val textChars = editableToCharArray(inputText.text)
-            val passChars = editableToCharArray(inputKey.text)
             try {
                 if (textChars.isEmpty()) { showError(getString(R.string.err_no_text)); return@setOnClickListener }
-                if (passChars.isEmpty()) { showError(getString(R.string.err_no_key)); return@setOnClickListener }
-                val bits = KeyStrength.estimateEntropyBits(passChars)
-                if (bits < KeyStrength.MIN_ENTROPY_BITS) {
-                    showError(
-                        getString(R.string.err_weak_key, bits.toInt(), KeyStrength.MIN_ENTROPY_BITS.toInt())
-                    )
-                    return@setOnClickListener
-                }
-                try {
-                    val expirySeconds = selectedExpirySeconds()
-                    showResult(CryptoEngine.encrypt(textChars, passChars, expirySeconds))
-                    // The plaintext no longer needs to stay in the input
-                    // field once it's been encrypted - clearing it here
-                    // reduces how long it sits visible/in memory.
-                    inputText.text?.clear()
-                } catch (e: Exception) {
-                    showError(getString(R.string.err_generic))
+
+                if (switchKeyExchangeMode.isChecked) {
+                    if (!KeyExchangeManager.hasPeerPublicKey(this)) {
+                        showError(getString(R.string.key_exchange_no_peer_error))
+                        return@setOnClickListener
+                    }
+                    val sharedKey = try {
+                        KeyExchangeManager.deriveSharedAesKey(this)
+                    } catch (e: Exception) {
+                        showError(getString(R.string.key_exchange_no_peer_error))
+                        return@setOnClickListener
+                    }
+                    try {
+                        val expirySeconds = selectedExpirySeconds()
+                        showResult(CryptoEngine.encryptWithKey(textChars, sharedKey, expirySeconds))
+                        inputText.text?.clear()
+                    } catch (e: Exception) {
+                        showError(getString(R.string.err_generic))
+                    } finally {
+                        Arrays.fill(sharedKey, 0)
+                    }
+                } else {
+                    val passChars = editableToCharArray(inputKey.text)
+                    try {
+                        if (passChars.isEmpty()) { showError(getString(R.string.err_no_key)); return@setOnClickListener }
+                        val bits = KeyStrength.estimateEntropyBits(passChars)
+                        if (bits < KeyStrength.MIN_ENTROPY_BITS) {
+                            showError(
+                                getString(R.string.err_weak_key, bits.toInt(), KeyStrength.MIN_ENTROPY_BITS.toInt())
+                            )
+                            return@setOnClickListener
+                        }
+                        try {
+                            val expirySeconds = selectedExpirySeconds()
+                            showResult(CryptoEngine.encrypt(textChars, passChars, expirySeconds))
+                            // The plaintext no longer needs to stay in the
+                            // input field once it's been encrypted -
+                            // clearing it here reduces how long it sits
+                            // visible/in memory.
+                            inputText.text?.clear()
+                        } catch (e: Exception) {
+                            showError(getString(R.string.err_generic))
+                        }
+                    } finally {
+                        clearChars(passChars)
+                    }
                 }
             } finally {
-                clearChars(passChars)
                 clearChars(textChars)
             }
         }
@@ -195,15 +238,25 @@ class EncryptActivity : AppCompatActivity() {
             // shared/stored openly - only the plaintext and key are
             // secret), so it's fine to read this one as a String.
             val cipherB64 = inputText.text.toString()
-            val passChars = editableToCharArray(inputKey.text)
-            try {
-                if (cipherB64.isBlank()) { showError(getString(R.string.err_no_cipher)); return@setOnClickListener }
-                if (passChars.isEmpty()) { showError(getString(R.string.err_no_key)); return@setOnClickListener }
+            if (cipherB64.isBlank()) { showError(getString(R.string.err_no_cipher)); return@setOnClickListener }
+
+            if (switchKeyExchangeMode.isChecked) {
+                if (!KeyExchangeManager.hasPeerPublicKey(this)) {
+                    showError(getString(R.string.key_exchange_no_peer_error))
+                    return@setOnClickListener
+                }
+                if (!CryptoEngine.isKeyExchangeCiphertext(cipherB64)) {
+                    showError(getString(R.string.err_bad_key))
+                    return@setOnClickListener
+                }
+                val sharedKey = try {
+                    KeyExchangeManager.deriveSharedAesKey(this)
+                } catch (e: Exception) {
+                    showError(getString(R.string.key_exchange_no_peer_error))
+                    return@setOnClickListener
+                }
                 try {
-                    // decrypt() now returns the sensitive plaintext as a
-                    // CharArray (see fix note on the function itself)
-                    // instead of an unwipeable String.
-                    val plainChars = CryptoEngine.decrypt(cipherB64, passChars)
+                    val plainChars = CryptoEngine.decryptWithKey(cipherB64, sharedKey)
                     try {
                         showResult(plainChars)
                     } finally {
@@ -213,9 +266,35 @@ class EncryptActivity : AppCompatActivity() {
                     showError(getString(R.string.err_expired))
                 } catch (e: Exception) {
                     showError(getString(R.string.err_bad_key))
+                } finally {
+                    Arrays.fill(sharedKey, 0)
                 }
-            } finally {
-                clearChars(passChars)
+            } else {
+                if (CryptoEngine.isKeyExchangeCiphertext(cipherB64)) {
+                    showError(getString(R.string.key_exchange_wrong_mode_error))
+                    return@setOnClickListener
+                }
+                val passChars = editableToCharArray(inputKey.text)
+                try {
+                    if (passChars.isEmpty()) { showError(getString(R.string.err_no_key)); return@setOnClickListener }
+                    try {
+                        // decrypt() now returns the sensitive plaintext as a
+                        // CharArray (see fix note on the function itself)
+                        // instead of an unwipeable String.
+                        val plainChars = CryptoEngine.decrypt(cipherB64, passChars)
+                        try {
+                            showResult(plainChars)
+                        } finally {
+                            clearChars(plainChars)
+                        }
+                    } catch (e: CryptoEngine.ExpiredMessageException) {
+                        showError(getString(R.string.err_expired))
+                    } catch (e: Exception) {
+                        showError(getString(R.string.err_bad_key))
+                    }
+                } finally {
+                    clearChars(passChars)
+                }
             }
         }
 
@@ -282,6 +361,7 @@ class EncryptActivity : AppCompatActivity() {
             inputText.text?.clear()
             inputKey.text?.clear()
             inputCustomMinutes.text?.clear()
+            inputPeerPublicKey.text?.clear()
             spinnerExpiry.setSelection(0)
             resultText.text = ""
             resultCard.visibility = View.GONE
@@ -349,6 +429,98 @@ class EncryptActivity : AppCompatActivity() {
 
     private fun clearChars(chars: CharArray) {
         Arrays.fill(chars, '\u0000')
+    }
+
+    /**
+     * Wires up the X25519 key-exchange section: the mode switch that
+     * swaps the passphrase field for the exchange card, showing this
+     * device's own public key + fingerprint, and the save/clear/
+     * regenerate actions for the peer's key. See KeyExchangeManager's
+     * class doc for the actual crypto design.
+     */
+    private fun setUpKeyExchangeUi() {
+        refreshMyPublicKeyDisplay()
+        refreshPeerKeyStatus()
+
+        switchKeyExchangeMode.setOnCheckedChangeListener { _, checked ->
+            keyExchangeCard.visibility = if (checked) View.VISIBLE else View.GONE
+            // Passphrase-mode controls are irrelevant (and confusing to
+            // leave visible) while key-exchange mode is active - hide
+            // the whole passphrase block rather than just the field, so
+            // the strength hint/generate/session buttons don't linger.
+            inputKey.visibility = if (checked) View.GONE else View.VISIBLE
+            keyStrengthHint.visibility = if (checked) View.GONE else View.VISIBLE
+            findViewById<MaterialButton>(R.id.btnGenerateKey).visibility = if (checked) View.GONE else View.VISIBLE
+            findViewById<MaterialButton>(R.id.btnUseAsSessionKey).visibility = if (checked) View.GONE else View.VISIBLE
+            sessionKeyStatus.visibility = if (checked) View.GONE else View.VISIBLE
+            hideError()
+        }
+
+        findViewById<MaterialButton>(R.id.btnCopyMyPublicKey).setOnClickListener {
+            // A public key is, by design, not secret - unlike
+            // copyResultToClipboard() (used for ciphertext/plaintext),
+            // this doesn't mark the clip sensitive or auto-clear it: the
+            // whole point is to paste it into another app (WhatsApp,
+            // SMS, etc.) a moment later without racing a timer.
+            val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText(getString(R.string.my_public_key_label), KeyExchangeManager.myPublicKeyBase64(this)))
+            Toast.makeText(this, getString(R.string.public_key_copied_toast), Toast.LENGTH_SHORT).show()
+        }
+
+        findViewById<MaterialButton>(R.id.btnSavePeerKey).setOnClickListener {
+            hideError()
+            val pasted = inputPeerPublicKey.text.toString()
+            if (KeyExchangeManager.setPeerPublicKeyBase64(this, pasted)) {
+                inputPeerPublicKey.text?.clear()
+                Toast.makeText(this, getString(R.string.peer_key_saved_toast), Toast.LENGTH_SHORT).show()
+                refreshPeerKeyStatus()
+            } else {
+                showError(getString(R.string.peer_key_invalid_error))
+            }
+        }
+
+        findViewById<MaterialButton>(R.id.btnClearPeerKey).setOnClickListener {
+            KeyExchangeManager.clearPeerPublicKey(this)
+            Toast.makeText(this, getString(R.string.peer_key_cleared_toast), Toast.LENGTH_SHORT).show()
+            refreshPeerKeyStatus()
+        }
+
+        findViewById<MaterialButton>(R.id.btnRegenerateIdentity).setOnClickListener {
+            AlertDialog.Builder(this)
+                .setMessage(getString(R.string.key_exchange_regenerate_confirm))
+                .setPositiveButton(getString(R.string.key_exchange_regenerate_confirm_yes)) { _, _ ->
+                    KeyExchangeManager.regenerateIdentity(this)
+                    refreshMyPublicKeyDisplay()
+                    Toast.makeText(this, getString(R.string.key_exchange_regenerated_toast), Toast.LENGTH_SHORT).show()
+                }
+                .setNegativeButton(getString(R.string.key_exchange_regenerate_confirm_no), null)
+                .show()
+        }
+
+        ThemeUtil.tintPrimary(this, findViewById(R.id.btnSavePeerKey))
+        ThemeUtil.tintOutline(
+            this,
+            findViewById(R.id.btnCopyMyPublicKey),
+            findViewById(R.id.btnClearPeerKey),
+            findViewById(R.id.btnRegenerateIdentity)
+        )
+    }
+
+    private fun refreshMyPublicKeyDisplay() {
+        val myKey = KeyExchangeManager.myPublicKeyBase64(this)
+        myPublicKeyText.text = myKey
+        val fp = KeyExchangeManager.fingerprint(myKey)
+        myFingerprintText.text = if (fp != null) getString(R.string.fingerprint_label, fp) else ""
+    }
+
+    private fun refreshPeerKeyStatus() {
+        val peerKey = KeyExchangeManager.peerPublicKeyBase64(this)
+        peerKeyStatusText.text = if (peerKey != null) {
+            val fp = KeyExchangeManager.fingerprint(peerKey)
+            if (fp != null) getString(R.string.fingerprint_label, fp) else peerKey
+        } else {
+            getString(R.string.peer_key_missing_status)
+        }
     }
 
     private fun updateSessionKeyStatus() {
@@ -473,6 +645,7 @@ class EncryptActivity : AppCompatActivity() {
         inputText.text?.clear()
         inputKey.text?.clear()
         inputCustomMinutes.text?.clear()
+        inputPeerPublicKey.text?.clear()
         resultText.text = ""
         resultCard.visibility = View.GONE
     }
