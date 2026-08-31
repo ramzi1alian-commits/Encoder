@@ -126,4 +126,7 @@
     <string name="crypto_panel_close_btn">إغلاق</string>
     <string name="crypto_panel_open_popup_btn">نافذة تركيب منفصلة (أأمن، بدون كتابة داخل واتساب)</string>
     <string name="crypto_panel_popup_desc">الخيار الأول فوق بيكتب النص المشفر مباشرة في حقل واتساب. الخيار ده بيفتح نافذة منفصلة تكتب فيها رسالتك، وميلمسش حقل واتساب إلا بالنص المشفر النهائي بعد النسخ واللصق يدويا.</string>
+    <string name="crypto_panel_secure_compose_btn">وضع الكتابة الآمنة (زر واحد، بدون لصق)</string>
+    <string name="crypto_panel_secure_compose_desc">أفضل خيار: بتكتب رسالتك جوه معاينة داخل الكيبورد نفسه - حقل واتساب مايشوفش ولا حرف صافي إطلاقا. بمجرد ما تدوس "إرسال"، النص المشفر بس هو اللي بيتحط في واتساب مباشرة.</string>
+    <string name="crypto_panel_send_btn">🔒 إرسال</string>
 </resources>

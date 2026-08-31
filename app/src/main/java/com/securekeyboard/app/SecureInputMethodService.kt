@@ -215,7 +215,17 @@ class SecureInputMethodService : InputMethodService() {
     private var showingSymbols = false
     private var showingEmoji = false
     private var showingCrypto = false
+    private var showingSecureCompose = false
     private var englishShiftOn = false
+    // Message body while in secure-compose mode (see buildSecureComposePage
+    // below) - deliberately NEVER passed to the InputConnection until the
+    // moment it's encrypted and sent, so the target app's field (and
+    // anything else with access to it, e.g. an Accessibility Service)
+    // never sees a single character of the plaintext, not even
+    // transiently. Cleared on send, on "back", and on any field switch -
+    // see clearSecureCompose() and every call site of it.
+    private val composeBuffer = StringBuilder()
+    private var composePreviewView: TextView? = null
     // Holds decrypted plaintext ONLY while the crypto panel is actively
     // displaying it for the user to read - never written anywhere, and
     // cleared (see clearCryptoResult()) the moment the panel closes or a
@@ -336,6 +346,7 @@ class SecureInputMethodService : InputMethodService() {
         when {
             showingEmoji -> buildEmojiPage(root, heightDp)
             showingSymbols -> buildSymbolsPage(root, heightDp)
+            showingSecureCompose -> buildSecureComposePage(root, heightDp)
             showingCrypto -> buildCryptoPage(root, heightDp)
             else -> buildLetterPage(root, heightDp)
         }
@@ -346,6 +357,19 @@ class SecureInputMethodService : InputMethodService() {
     /** Rebuilds the whole keyboard view in place, e.g. after switching pages. */
     private fun rebuildKeyboardView() {
         setInputView(onCreateInputView())
+    }
+
+    private fun clearSecureCompose() {
+        // StringBuilder can't be securely zeroed the way a CharArray can
+        // (see CryptoEngine's comments on this same limitation) - this
+        // is a best-effort clear like everything else in this app that
+        // has to use a mutable text container instead, not an absolute
+        // guarantee. It IS still strictly better than committing the
+        // text to WhatsApp's own field, which this whole feature exists
+        // to avoid.
+        composeBuffer.setLength(0)
+        composePreviewView = null
+        showingSecureCompose = false
     }
 
     /**
@@ -549,6 +573,23 @@ class SecureInputMethodService : InputMethodService() {
 
         val sessionActive = SessionKeyStore.isActive()
 
+        val composeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        composeRow.addView(makeKey(getString(R.string.crypto_panel_secure_compose_btn), weight = 1f, heightDp = heightDp, accented = sessionActive) {
+            showingSecureCompose = true
+            rebuildKeyboardView()
+        })
+        root.addView(composeRow)
+
+        val composeDesc = TextView(this).apply {
+            text = getString(R.string.crypto_panel_secure_compose_desc)
+            setTextColor(Color.parseColor("#94A3B8"))
+            textSize = 11f
+            setPadding(padding, 0, padding, dpToPx(4f))
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            textDirection = View.TEXT_DIRECTION_RTL
+        }
+        root.addView(composeDesc)
+
         val encryptRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         encryptRow.addView(makeKey(getString(R.string.crypto_panel_encrypt_btn), weight = 1f, heightDp = heightDp, accented = sessionActive) {
             encryptFieldAndInject()
@@ -588,6 +629,111 @@ class SecureInputMethodService : InputMethodService() {
             rebuildKeyboardView()
         })
         root.addView(bottomRow)
+    }
+
+    /**
+     * The recommended path: types the message into an internal buffer
+     * ONLY (composeBuffer above) - never touching the target field via
+     * InputConnection until the single "إرسال" tap encrypts it and
+     * commits the CIPHERTEXT in one shot. This means WhatsApp's field
+     * (and anything else that can read it, including an Accessibility
+     * Service on another app) never sees so much as one character of
+     * the plaintext, without needing a separate popup/Activity or a
+     * manual copy-paste step either.
+     */
+    private fun buildSecureComposePage(root: LinearLayout, heightDp: Int) {
+        val preview = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 16f
+            setPadding(dpToPx(8f), dpToPx(6f), dpToPx(8f), dpToPx(6f))
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            textDirection = View.TEXT_DIRECTION_RTL
+            minLines = 2
+            maxLines = 3
+            text = composeBuffer.toString()
+        }
+        composePreviewView = preview
+        val previewScroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dpToPx(heightDp * 1.7f)
+            )
+            addView(preview)
+        }
+        root.addView(previewScroll)
+
+        val isArabic = letterMode == LetterMode.ARABIC
+        val rows = if (isArabic) {
+            listOf(
+                "ض ص ث ق ف غ ع ه خ ح ج د",
+                "ش س ي ب ل ا ت ن م ك ط ذ",
+                "ئ ء ؤ ر لا ى ة و ز ظ"
+            )
+        } else {
+            if (englishShiftOn) ENGLISH_ROWS_UPPER else ENGLISH_ROWS_LOWER
+        }
+        for (row in rows) {
+            val rowLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (ch in row.split(" ")) {
+                rowLayout.addView(makeKey(ch, heightDp = heightDp) {
+                    composeBuffer.append(ch)
+                    composePreviewView?.text = composeBuffer.toString()
+                })
+            }
+            root.addView(rowLayout)
+        }
+
+        val bottomRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        bottomRow.addView(makeKey("رجوع", weight = 1.3f, heightDp = heightDp) {
+            // Leaving without sending discards the draft entirely - no
+            // "save for later", consistent with nothing here ever being
+            // written to disk.
+            clearSecureCompose()
+            rebuildKeyboardView()
+        })
+        bottomRow.addView(makeKey("مسافة", weight = 3f, heightDp = heightDp, accented = true) {
+            composeBuffer.append(' ')
+            composePreviewView?.text = composeBuffer.toString()
+        })
+        bottomRow.addView(makeKey("حذف", weight = 1.3f, heightDp = heightDp, accented = true) {
+            if (composeBuffer.isNotEmpty()) composeBuffer.deleteCharAt(composeBuffer.length - 1)
+            composePreviewView?.text = composeBuffer.toString()
+        })
+        bottomRow.addView(makeKey(getString(R.string.crypto_panel_send_btn), weight = 2f, heightDp = heightDp, accented = true) {
+            sendSecureCompose()
+        })
+        root.addView(bottomRow)
+    }
+
+    /** Encrypts composeBuffer and commits ONLY the ciphertext, in one shot, to the active field. */
+    private fun sendSecureCompose() {
+        if (composeBuffer.isEmpty()) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_empty_field_toast, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        val passphrase = SessionKeyStore.get()
+        if (passphrase == null) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_no_session, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val textChars = composeBuffer.toString().toCharArray()
+            val cipherText = try {
+                CryptoEngine.encrypt(textChars, passphrase, expirySeconds = null)
+            } finally {
+                java.util.Arrays.fill(textChars, ' ')
+            }
+            // The ONLY thing that ever reaches the target app's field
+            // from this whole page.
+            currentInputConnection?.commitText(cipherText, 1)
+            clearSecureCompose()
+            showingCrypto = false
+            currentWord.clear()
+            lastFinishedWord = null
+            rebuildKeyboardView()
+        } finally {
+            java.util.Arrays.fill(passphrase, ' ')
+        }
     }
 
     /**
@@ -1052,11 +1198,12 @@ class SecureInputMethodService : InputMethodService() {
         // The AR/EN letter choice itself (letterMode) is left as-is,
         // same as a real keyboard remembering the language you were
         // just using.
-        val cameFromOverlay = showingSymbols || showingEmoji || showingCrypto
+        val cameFromOverlay = showingSymbols || showingEmoji || showingCrypto || showingSecureCompose
         showingSymbols = false
         showingEmoji = false
         showingCrypto = false
         cryptoDecryptedText = null
+        clearSecureCompose()
 
         // Suggestions are opt-OUT per field, driven entirely by what the
         // app being typed into declares - never by anything this keyboard
@@ -1121,6 +1268,7 @@ class SecureInputMethodService : InputMethodService() {
         lastFinishedWord = null
         cryptoDecryptedText = null
         showingCrypto = false
+        clearSecureCompose()
         updateSuggestions()
         // Cancel any in-flight long-press/tatweel-repeat timer so it
         // can't fire against a key view that's about to be torn down.
