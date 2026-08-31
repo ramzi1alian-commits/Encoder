@@ -83,4 +83,28 @@
     <string name="learned_phrases_desc">في أي حقل غير حساس، لما تخلّص سطر كامل وتضغط \"إدخال\"، الكيبورد بيحفظ الجملة دي على جهازك فقط (بدون إنترنت) عشان يقترحها عليك كاملة تاني في المرة الجاية. الجملة لازم تكون كلمتين على الأقل، والجمل الطويلة جدا متتحفظش. ده تخزين حقيقي لأجزاء مما تكتبه فعليا - أكتر من مجرد كلمات مفردة - وتقدر تمسحه في أي وقت منفصل عن الكلمات المتعلَّمة.</string>
     <string name="clear_phrases_btn">مسح الجمل المحفوظة</string>
     <string name="phrases_cleared_toast">تم مسح كل الجمل المحفوظة</string>
+
+    <string name="autocorrect_title">التصحيح التلقائي</string>
+    <string name="autocorrect_desc">يستبدل عدد محدود من الأخطاء الإملائية الشائعة (عربي وإنجليزي) تلقائيا عند إنهاء الكلمة - قائمة ثابتة داخل التطبيق، مش نموذج بيتعلم من كتابتك. مطفأ افتراضيا.</string>
+    <string name="autocorrect_switch_label">تفعيل التصحيح التلقائي</string>
+
+    <string name="backup_title">نسخ احتياطي للقاموس المتعلَّم</string>
+    <string name="backup_desc">صدّر الكلمات اللي اتعلمها الكيبورد منك كملف نصي تختار مكانه بنفسك، أو استورد ملف سابق لدمجه مع القاموس الحالي - يفيد عند تغيير الجهاز أو إعادة التثبيت. التطبيق برضه بدون إنترنت هنا، الملف بيتحفظ فين ما تختار أنت بس.</string>
+    <string name="export_learned_btn">تصدير القاموس المتعلَّم</string>
+    <string name="import_learned_btn">استيراد قاموس محفوظ</string>
+    <string name="export_success_toast">تم حفظ الملف</string>
+    <string name="export_fail_toast">تعذّر حفظ الملف</string>
+    <string name="import_success_toast">تم استيراد %1$d كلمة</string>
+    <string name="import_fail_toast">تعذّر قراءة الملف أو كان فارغا</string>
+
+    <string name="about_btn">عن التطبيق والخصوصية</string>
+    <string name="about_title">عن التطبيق والخصوصية</string>
+    <string name="about_section_internet_title">بدون إنترنت نهائيا</string>
+    <string name="about_section_internet_body">هذا التطبيق لا يطلب صلاحية الإنترنت إطلاقا، وده قرار على مستوى النظام مش مجرد وعد في الكود - يعني حتى لو حصل خطأ برمجي، جهازك نفسه بيمنع أي اتصال. مفيش خادم، مفيش تحليلات، مفيش إعلانات.</string>
+    <string name="about_section_dictionaries_title">كيف بيقترح الكلمات</string>
+    <string name="about_section_dictionaries_body">فيه نوعين من الاقتراحات: قاموس ثابت مبني من نصوص عربية عامة (مش بياناتك)، وقاموس شخصي بيتعلم من الكلمات اللي بتكتبها فعلا على جهازك بس. الاتنين بيشتغلوا بدون إرسال أي حاجة لأي مكان.</string>
+    <string name="about_section_sensitive_title">الحقول الحساسة محمية بشكل أقوى</string>
+    <string name="about_section_sensitive_body">في حقول كلمة المرور، أو أي حقل يطلب صراحة عدم الاقتراحات (زي شاشة التشفير بتاعة التطبيق نفسه)، بيتوقف الاقتراح والتعلّم تماما - مفيش أي كلمة من الحقل ده بتتحفظ في أي قاموس.</string>
+    <string name="about_section_control_title">التحكم كامل في إيدك</string>
+    <string name="about_section_control_body">تقدر تمسح القاموس الشخصي أو الجمل المحفوظة في أي وقت من الإعدادات، وتقدر كمان تصدّرهم لملف تحتفظ بيه بنفسك أو تستوردهم على جهاز تاني - بدون أي تدخل من التطبيق في إن الملف ده يروح فين.</string>
 </resources>

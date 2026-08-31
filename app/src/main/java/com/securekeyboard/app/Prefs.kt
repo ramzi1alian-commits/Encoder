@@ -15,6 +15,7 @@ object Prefs {
     private const val KEY_FONT = "font_choice"
     private const val KEY_DENSITY = "density"
     private const val KEY_KEYBOARD_HEIGHT = "keyboard_height_dp"
+    private const val KEY_AUTOCORRECT = "autocorrect_enabled"
 
     // Reasonable dp bounds for a comfortable-but-compact keyboard row.
     // (For reference: 1cm on a phone screen is roughly 63dp - the slider
@@ -81,6 +82,19 @@ object Prefs {
     fun setDarkMode(context: Context, dark: Boolean) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
             .putBoolean(KEY_DARK, dark).apply()
+    }
+
+    // OFF by default - autocorrect only ever touches a tiny fixed table
+    // of unambiguous typos (see Autocorrect.kt), but it still changes
+    // what gets typed without an explicit tap, so it stays opt-in.
+    fun autocorrectEnabled(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        return prefs.getBoolean(KEY_AUTOCORRECT, false)
+    }
+
+    fun setAutocorrectEnabled(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .putBoolean(KEY_AUTOCORRECT, enabled).apply()
     }
 
     // 0 = default sans-serif, 1 = serif, 2 = monospace

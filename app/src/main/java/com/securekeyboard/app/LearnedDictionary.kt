@@ -46,6 +46,12 @@ import java.util.concurrent.ConcurrentHashMap
  * - The user can wipe this file at any time from Settings ("مسح الكلمات
  *   المتعلمة" - see SettingsActivity), which deletes it immediately and
  *   starts learning fresh.
+ * - The user can also EXPORT this file to a text file of their own
+ *   choosing (via Android's file picker, never automatically) and
+ *   IMPORT it back later - e.g. to carry it to a new device, since
+ *   normal Android backups are excluded by design. This is a manual,
+ *   user-initiated action every time; nothing here is uploaded, synced,
+ *   or shared with this app's knowledge or involvement.
  * - Fields the focused app marks sensitive - a password field, or any
  *   field with the TYPE_TEXT_FLAG_NO_SUGGESTIONS flag, which includes
  *   THIS APP'S OWN EncryptActivity message/key fields - never reach
@@ -111,6 +117,52 @@ object LearnedDictionary {
                 // gets overwritten on the next persist() anyway.
             }
         }.apply { isDaemon = true }.start()
+    }
+
+    /**
+     * MANUAL export/import (see SettingsActivity's "نسخ احتياطي للقاموس"
+     * card) - the user explicitly picks a destination/source file via
+     * Android's own file picker (Storage Access Framework), so this is
+     * still never automatic and never touches the network (no INTERNET
+     * permission anywhere in the app either way). This is the intended
+     * way to carry a learned vocabulary to a new device or restore it
+     * after reinstalling, since backups are otherwise excluded by design
+     * (android:allowBackup="false").
+     */
+    fun exportText(): String {
+        val sb = StringBuilder()
+        for ((word, count) in counts) {
+            sb.append(word).append('\t').append(count).append('\n')
+        }
+        return sb.toString()
+    }
+
+    /**
+     * Merges [text] (in the same word\tcount\n format exportText()
+     * produces) into the current in-memory dictionary and persists the
+     * result. Matching words have their counts ADDED together (so
+     * re-importing the same file twice roughly doubles those counts,
+     * same trade-off as tapping a suggestion twice - not treated
+     * specially here since this is a rare, user-initiated action, not
+     * something that happens silently). Malformed lines are skipped, not
+     * fatal. Returns how many word entries were merged in, so the caller
+     * can show a meaningful confirmation.
+     */
+    fun importText(context: Context, text: String): Int {
+        var imported = 0
+        for (line in text.lineSequence()) {
+            val tab = line.indexOf('\t')
+            if (tab <= 0) continue
+            val word = line.substring(0, tab)
+            val count = line.substring(tab + 1).trim().toIntOrNull() ?: continue
+            if (word.isEmpty()) continue
+            counts.merge(word, count) { old, added -> old + added }
+            imported++
+        }
+        if (imported > 0) {
+            persist(context.applicationContext)
+        }
+        return imported
     }
 
     private fun loadFromDisk(context: Context) {

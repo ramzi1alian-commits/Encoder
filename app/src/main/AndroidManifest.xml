@@ -42,6 +42,11 @@
             android:exported="false"
             android:label="@string/encrypt_title" />
 
+        <activity
+            android:name=".AboutActivity"
+            android:exported="false"
+            android:label="@string/about_title" />
+
         <service
             android:name=".SecureInputMethodService"
             android:permission="android.permission.BIND_INPUT_METHOD"

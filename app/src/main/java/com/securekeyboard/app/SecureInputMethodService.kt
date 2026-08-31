@@ -167,7 +167,50 @@ class SecureInputMethodService : InputMethodService() {
         private val LETTER_VARIANTS = mapOf(
             "ا" to listOf("ا", "أ", "إ", "آ")
         )
+
+        // ADDED - multi-mode keyboard: Arabic letters (default), English
+        // letters, a symbols/numbers page, and a small emoji page. Only
+        // the currently active page's rows are ever built, so none of
+        // this changes what gets sent to the field beyond the extra
+        // characters/keys the user explicitly taps.
+        private val ENGLISH_ROWS_LOWER = listOf(
+            "q w e r t y u i o p",
+            "a s d f g h j k l",
+            "z x c v b n m"
+        )
+        private val ENGLISH_ROWS_UPPER = listOf(
+            "Q W E R T Y U I O P",
+            "A S D F G H J K L",
+            "Z X C V B N M"
+        )
+        private val SYMBOL_ROWS = listOf(
+            "1 2 3 4 5 6 7 8 9 0",
+            "@ # \$ % & * - + ( )",
+            "! \" ' : ; , . ? /"
+        )
+        // A modest, fixed set of common emoji - not exhaustive, just
+        // enough to cover everyday use without bloating the keyboard.
+        private val EMOJI_LIST = listOf(
+            "😀", "😂", "🥰", "😍", "😊", "🙂", "😉", "😢",
+            "😭", "😡", "👍", "👎", "🙏", "❤️", "💔", "🔥",
+            "🎉", "🎂", "🌹", "⭐", "✅", "❌", "🤔", "🙄",
+            "😴", "🤗", "😎", "🥳", "😇", "🤝", "👏", "🙌",
+            "💪", "🌙", "☀️", "⚡", "🎁", "📌", "📍", "🕌",
+            "📖", "✍️", "☕", "🍵", "🍎", "🍕", "🚗", "🏠"
+        )
     }
+
+    // Which base letter alphabet is showing (persists across symbol/emoji
+    // page visits so "ABC"/"ابجد" always returns to the right one), and
+    // whether the symbols or emoji overlay page is currently on top of
+    // it. Purely a UI/display choice - never written to disk, resets to
+    // Arabic + no overlay every time a fresh field is focused, same as
+    // currentWord below.
+    private enum class LetterMode { ARABIC, ENGLISH }
+    private var letterMode = LetterMode.ARABIC
+    private var showingSymbols = false
+    private var showingEmoji = false
+    private var englishShiftOn = false
 
     // Single Handler for every key's long-press/repeat timers. Each
     // posted Runnable is stored on that key's own local variables (see
@@ -252,15 +295,6 @@ class SecureInputMethodService : InputMethodService() {
             layoutDirection = View.LAYOUT_DIRECTION_LTR
         }
 
-        // NOTE: rows/letters and their order are UNCHANGED from before -
-        // only sizing (dp instead of raw px) and background styling were
-        // touched in this pass.
-        val rows = listOf(
-            "ض ص ث ق ف غ ع ه خ ح ج د",
-            "ش س ي ب ل ا ت ن م ك ط ذ",
-            "ئ ء ؤ ر لا ى ة و ز ظ"
-        )
-
         // Suggestion strip: built once here, populated/hidden dynamically
         // by updateSuggestions() as the user types. Height is a fixed,
         // modest fraction of the key height so it doesn't dominate the
@@ -282,37 +316,67 @@ class SecureInputMethodService : InputMethodService() {
         suggestionBar = bar
         root.addView(bar)
 
-        val numberRow = "1 2 3 4 5 6 7 8 9 0".split(" ")
-        val numberLayout = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        // ADDED - multi-page keyboard: dispatches to whichever page is
+        // currently active (see letterMode/showingSymbols/showingEmoji
+        // above). Each builder is responsible for its own rows AND its
+        // own bottom action row, since the keys that belong there differ
+        // per page (e.g. the emoji page has no need for a "123" key).
+        when {
+            showingEmoji -> buildEmojiPage(root, heightDp)
+            showingSymbols -> buildSymbolsPage(root, heightDp)
+            else -> buildLetterPage(root, heightDp)
         }
-        for (n in numberRow) {
+
+        return root
+    }
+
+    /** Rebuilds the whole keyboard view in place, e.g. after switching pages. */
+    private fun rebuildKeyboardView() {
+        setInputView(onCreateInputView())
+    }
+
+    /**
+     * Arabic or English letters (per [letterMode]), plus the number row
+     * and the shared space/delete/enter/mode-switch bottom row. This is
+     * the page shown by default and whenever the user taps back from
+     * symbols/emoji.
+     */
+    private fun buildLetterPage(root: LinearLayout, heightDp: Int) {
+        val numberLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (n in "1 2 3 4 5 6 7 8 9 0".split(" ")) {
             numberLayout.addView(makeKey(n, heightDp = heightDp))
         }
         root.addView(numberLayout)
 
+        val rows: List<String>
+        val isArabic = letterMode == LetterMode.ARABIC
+        if (isArabic) {
+            // NOTE: rows/letters and their order are UNCHANGED from
+            // before - only sizing (dp instead of raw px) and background
+            // styling were touched in that earlier pass.
+            rows = listOf(
+                "ض ص ث ق ف غ ع ه خ ح ج د",
+                "ش س ي ب ل ا ت ن م ك ط ذ",
+                "ئ ء ؤ ر لا ى ة و ز ظ"
+            )
+        } else {
+            rows = if (englishShiftOn) ENGLISH_ROWS_UPPER else ENGLISH_ROWS_LOWER
+        }
+
         for (row in rows) {
-            val rowLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-            }
+            val rowLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             for (ch in row.split(" ")) {
-                val variants = LETTER_VARIANTS[ch]
+                // Hamza popup / tatweel-hold are Arabic-specific
+                // behaviors - English letters just commit plainly, same
+                // as any other key with no variants.
+                val variants = if (isArabic) LETTER_VARIANTS[ch] else null
                 rowLayout.addView(
                     makeKey(
                         ch,
                         heightDp = heightDp,
                         variants = variants,
-                        // Only letters WITHOUT a hamza popup get the
-                        // tatweel hold-to-extend behavior, so a long
-                        // press on ا always means "show me the hamza
-                        // forms", never "start inserting ـ".
-                        tatweelExtend = variants == null
+                        tatweelExtend = isArabic && variants == null
                     ) {
-                        // Arabic letters only ever reach this branch (the
-                        // number row and action keys use their own
-                        // onClick above/below and never touch
-                        // currentWord), so it's safe to always treat a
-                        // key here as "extends the current word".
                         commitLetter(ch)
                     }
                 )
@@ -320,26 +384,126 @@ class SecureInputMethodService : InputMethodService() {
             root.addView(rowLayout)
         }
 
-        val bottomRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
+        val bottomRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val langLabel = if (isArabic) "EN" else "ع"
+        bottomRow.addView(makeKey(langLabel, weight = 1.2f, heightDp = heightDp) {
+            // Switching alphabets mid-word is a deliberate choice the
+            // user just made (e.g. typing an English name inside an
+            // Arabic sentence), so the in-progress word is left alone -
+            // only the page changes.
+            letterMode = if (isArabic) LetterMode.ENGLISH else LetterMode.ARABIC
+            englishShiftOn = false
+            rebuildKeyboardView()
+        })
+        if (!isArabic) {
+            bottomRow.addView(makeKey("⇧", weight = 1.2f, heightDp = heightDp, accented = englishShiftOn) {
+                englishShiftOn = !englishShiftOn
+                rebuildKeyboardView()
+            })
         }
-        bottomRow.addView(makeKey("مسافة", weight = 4f, heightDp = heightDp, accented = true) {
-            val finishedWord = currentWord.toString()
+        bottomRow.addView(makeKey("123", weight = 1.2f, heightDp = heightDp) {
+            showingSymbols = true
+            rebuildKeyboardView()
+        })
+        bottomRow.addView(spaceKey(heightDp, weight = if (isArabic) 4f else 2.6f))
+        bottomRow.addView(makeKey("🙂", weight = 1.2f, heightDp = heightDp) {
+            showingEmoji = true
+            rebuildKeyboardView()
+        })
+        bottomRow.addView(deleteKey(heightDp))
+        bottomRow.addView(enterKey(heightDp))
+        root.addView(bottomRow)
+    }
+
+    /** Numbers/symbols page - "ABC"/"ابجد" returns to whichever alphabet was active. */
+    private fun buildSymbolsPage(root: LinearLayout, heightDp: Int) {
+        for (row in SYMBOL_ROWS) {
+            val rowLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (sym in row.split(" ")) {
+                rowLayout.addView(makeKey(sym, heightDp = heightDp) {
+                    // A symbol interrupts whatever word was in progress -
+                    // it can't extend it the way a letter does.
+                    currentInputConnection?.commitText(sym, 1)
+                    currentWord.clear()
+                    lastFinishedWord = null
+                    updateSuggestions()
+                })
+            }
+            root.addView(rowLayout)
+        }
+
+        val bottomRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val backLabel = if (letterMode == LetterMode.ARABIC) "ابجد" else "ABC"
+        bottomRow.addView(makeKey(backLabel, weight = 1.5f, heightDp = heightDp) {
+            showingSymbols = false
+            rebuildKeyboardView()
+        })
+        bottomRow.addView(spaceKey(heightDp, weight = 4f))
+        bottomRow.addView(deleteKey(heightDp))
+        bottomRow.addView(enterKey(heightDp))
+        root.addView(bottomRow)
+    }
+
+    /** Small fixed emoji grid - tapping an emoji commits it directly, no word-buffer involvement. */
+    private fun buildEmojiPage(root: LinearLayout, heightDp: Int) {
+        val perRow = 8
+        var i = 0
+        while (i < EMOJI_LIST.size) {
+            val rowLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            for (j in 0 until perRow) {
+                if (i >= EMOJI_LIST.size) break
+                val emoji = EMOJI_LIST[i]
+                rowLayout.addView(makeKey(emoji, heightDp = heightDp) {
+                    currentInputConnection?.commitText(emoji, 1)
+                })
+                i++
+            }
+            root.addView(rowLayout)
+        }
+
+        val bottomRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val backLabel = if (letterMode == LetterMode.ARABIC) "ابجد" else "ABC"
+        bottomRow.addView(makeKey(backLabel, weight = 2f, heightDp = heightDp) {
+            showingEmoji = false
+            rebuildKeyboardView()
+        })
+        bottomRow.addView(deleteKey(heightDp, weight = 2f))
+        root.addView(bottomRow)
+    }
+
+    /**
+     * The space key, shared by every page (letters, symbols): finishes
+     * the current word exactly as before (optional autocorrect, then
+     * LearnedDictionary/NextWordDictionary bookkeeping).
+     */
+    private fun spaceKey(heightDp: Int, weight: Float = 4f) =
+        makeKey("مسافة", weight = weight, heightDp = heightDp, accented = true) {
+            val typedWord = currentWord.toString()
+            // OPT-IN autocorrect (off by default, see Settings): a tiny,
+            // fixed, bundled list of common typos -> corrections (see
+            // Autocorrect.kt) - never anything learned from what the user
+            // types, same "fixed asset, not a model" convention as
+            // WordDictionary. Only runs in non-sensitive fields, same
+            // gate as everything else that touches currentWord's content.
+            val correction = if (suggestionsEnabled && Prefs.autocorrectEnabled(this)) {
+                Autocorrect.correct(typedWord)
+            } else null
+            if (correction != null) {
+                currentInputConnection?.deleteSurroundingText(typedWord.length, 0)
+                currentInputConnection?.commitText(correction, 1)
+            }
             currentInputConnection?.commitText(" ", 1)
-            // A finished word: in a sensitive field this just clears the
-            // buffer (old behavior, unchanged). In any other field, it's
-            // also handed to LearnedDictionary so future suggestions in
-            // THIS user's own vocabulary improve - see the class doc at
-            // the top of this file and LearnedDictionary.kt for exactly
-            // what that does and doesn't store.
+            val finishedWord = correction ?: typedWord
             if (suggestionsEnabled && finishedWord.isNotEmpty()) {
                 LearnedDictionary.learn(this@SecureInputMethodService, finishedWord)
             }
             lastFinishedWord = if (suggestionsEnabled && finishedWord.isNotEmpty()) finishedWord else null
             currentWord.clear()
             updateSuggestions()
-        })
-        bottomRow.addView(makeKey("حذف", weight = 1.5f, heightDp = heightDp, accented = true) {
+        }
+
+    private fun deleteKey(heightDp: Int, weight: Float = 1.5f) =
+        makeKey("حذف", weight = weight, heightDp = heightDp, accented = true) {
             currentInputConnection?.deleteSurroundingText(1, 0)
             // Was: just chop the last char off currentWord, which left
             // the buffer permanently empty (suggestions stuck off) the
@@ -349,10 +513,20 @@ class SecureInputMethodService : InputMethodService() {
             // typed - see resyncCurrentWordFromField().
             lastFinishedWord = null
             resyncCurrentWordFromField()
-        })
-        bottomRow.addView(makeKey("إدخال", weight = 1.5f, heightDp = heightDp, accented = true) {
-            val finishedWord = currentWord.toString()
+        }
+
+    private fun enterKey(heightDp: Int, weight: Float = 1.5f) =
+        makeKey("إدخال", weight = weight, heightDp = heightDp, accented = true) {
+            val typedWord = currentWord.toString()
+            val correction = if (suggestionsEnabled && Prefs.autocorrectEnabled(this)) {
+                Autocorrect.correct(typedWord)
+            } else null
             val ic = currentInputConnection
+            if (correction != null) {
+                ic?.deleteSurroundingText(typedWord.length, 0)
+                ic?.commitText(correction, 1)
+            }
+            val finishedWord = correction ?: typedWord
             // Grab the whole line being finished BEFORE sending Enter -
             // some apps submit/clear the field the instant Enter
             // arrives, so there'd be nothing left to read afterward.
@@ -374,11 +548,7 @@ class SecureInputMethodService : InputMethodService() {
             }
             currentWord.clear()
             updateSuggestions()
-        })
-        root.addView(bottomRow)
-
-        return root
-    }
+        }
 
     private fun makeKey(
         label: String,
@@ -533,11 +703,13 @@ class SecureInputMethodService : InputMethodService() {
      * True for every character this keyboard can actually type as part
      * of a word: the basic Arabic letter block (which covers every plain
      * letter AND every hamza form - ء through ي, i.e. 0x0621-0x064A) plus
-     * tatweel (ـ), which extends a word rather than ending it. Anything
-     * else (space, digits, punctuation, newline) is a word boundary.
+     * tatweel (ـ), which extends a word rather than ending it - AND
+     * plain ASCII letters, now that the EN page (see letterMode) can
+     * type those too. Anything else (space, digits, punctuation,
+     * newline) is a word boundary.
      */
     private fun isArabicWordChar(c: Char): Boolean {
-        return c == '\u0640' || (c.code in 0x0621..0x064A)
+        return c == '\u0640' || (c.code in 0x0621..0x064A) || c in 'a'..'z' || c in 'A'..'Z'
     }
 
     /**
@@ -678,6 +850,14 @@ class SecureInputMethodService : InputMethodService() {
         // word buffer, never whatever was being typed in a previous field.
         currentWord.clear()
         lastFinishedWord = null
+        // A fresh field always starts on the letters page - the symbols/
+        // emoji pages are a per-field-visit detour, not a sticky choice.
+        // The AR/EN letter choice itself (letterMode) is left as-is,
+        // same as a real keyboard remembering the language you were
+        // just using.
+        val cameFromOverlay = showingSymbols || showingEmoji
+        showingSymbols = false
+        showingEmoji = false
 
         // Suggestions are opt-OUT per field, driven entirely by what the
         // app being typed into declares - never by anything this keyboard
@@ -702,7 +882,7 @@ class SecureInputMethodService : InputMethodService() {
         val currentHeight = Prefs.keyboardHeightDp(this)
         val currentAccent = Prefs.accentColorRes(this)
         val nightMode = currentNightMode()
-        if (currentHeight != appliedHeightDp || currentAccent != appliedAccentRes || nightMode != appliedNightMode) {
+        if (cameFromOverlay || currentHeight != appliedHeightDp || currentAccent != appliedAccentRes || nightMode != appliedNightMode) {
             setInputView(onCreateInputView())
         }
     }
