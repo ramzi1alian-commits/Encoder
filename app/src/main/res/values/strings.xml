@@ -107,4 +107,23 @@
     <string name="about_section_sensitive_body">في حقول كلمة المرور، أو أي حقل يطلب صراحة عدم الاقتراحات (زي شاشة التشفير بتاعة التطبيق نفسه)، بيتوقف الاقتراح والتعلّم تماما - مفيش أي كلمة من الحقل ده بتتحفظ في أي قاموس.</string>
     <string name="about_section_control_title">التحكم كامل في إيدك</string>
     <string name="about_section_control_body">تقدر تمسح القاموس الشخصي أو الجمل المحفوظة في أي وقت من الإعدادات، وتقدر كمان تصدّرهم لملف تحتفظ بيه بنفسك أو تستوردهم على جهاز تاني - بدون أي تدخل من التطبيق في إن الملف ده يروح فين.</string>
+
+    <string name="use_as_session_key_btn">استخدم كمفتاح جلسة (٣٠ دقيقة)</string>
+    <string name="session_key_inactive">لا يوجد مفتاح جلسة نشط حاليا. لما تفعّله، هتقدر تشفّر وتفك التشفير من داخل الكيبورد نفسه بدون ما تفتح هذه الشاشة كل مرة.</string>
+    <string name="session_key_active">مفتاح الجلسة نشط - متبقي %1$d دقيقة تقريبا. محفوظ في ذاكرة الجهاز المؤقتة فقط، مش على القرص.</string>
+    <string name="session_key_set_toast">تم تفعيل مفتاح الجلسة لمدة %1$d دقيقة</string>
+    <string name="session_key_cleared_toast">تم مسح مفتاح الجلسة</string>
+
+    <string name="crypto_panel_title">التشفير السريع</string>
+    <string name="crypto_panel_no_session">فعّل مفتاح جلسة أولا من شاشة التشفير الكاملة</string>
+    <string name="crypto_panel_encrypt_btn">شفّر النص الحالي واحقنه</string>
+    <string name="crypto_panel_decrypt_btn">افحص الحافظة وفك التشفير</string>
+    <string name="crypto_panel_empty_field_toast">الحقل فارغ، مفيش نص تشفّره</string>
+    <string name="crypto_panel_no_ciphertext_toast">مفيش رسالة مشفرة في الحافظة</string>
+    <string name="crypto_panel_decrypt_failed_toast">تعذّر فك التشفير - المفتاح غلط أو الرسالة تالفة</string>
+    <string name="crypto_panel_expired_toast">هذه الرسالة منتهية الصلاحية</string>
+    <string name="crypto_panel_decrypted_title">النص بعد فك التشفير</string>
+    <string name="crypto_panel_close_btn">إغلاق</string>
+    <string name="crypto_panel_open_popup_btn">نافذة تركيب منفصلة (أأمن، بدون كتابة داخل واتساب)</string>
+    <string name="crypto_panel_popup_desc">الخيار الأول فوق بيكتب النص المشفر مباشرة في حقل واتساب. الخيار ده بيفتح نافذة منفصلة تكتب فيها رسالتك، وميلمسش حقل واتساب إلا بالنص المشفر النهائي بعد النسخ واللصق يدويا.</string>
 </resources>

@@ -1,5 +1,7 @@
 package com.securekeyboard.app
 
+import android.content.ClipboardManager
+import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
@@ -13,8 +15,10 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedTextRequest
 import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.ScrollView
 import android.widget.TextView
 
 /**
@@ -210,7 +214,15 @@ class SecureInputMethodService : InputMethodService() {
     private var letterMode = LetterMode.ARABIC
     private var showingSymbols = false
     private var showingEmoji = false
+    private var showingCrypto = false
     private var englishShiftOn = false
+    // Holds decrypted plaintext ONLY while the crypto panel is actively
+    // displaying it for the user to read - never written anywhere, and
+    // cleared (see clearCryptoResult()) the moment the panel closes or a
+    // new field is focused. This is the sole in-memory copy; the
+    // CharArray CryptoEngine.decrypt() returns is converted once here
+    // and immediately zeroed (see buildCryptoPage's decrypt handler).
+    private var cryptoDecryptedText: String? = null
 
     // Single Handler for every key's long-press/repeat timers. Each
     // posted Runnable is stored on that key's own local variables (see
@@ -324,6 +336,7 @@ class SecureInputMethodService : InputMethodService() {
         when {
             showingEmoji -> buildEmojiPage(root, heightDp)
             showingSymbols -> buildSymbolsPage(root, heightDp)
+            showingCrypto -> buildCryptoPage(root, heightDp)
             else -> buildLetterPage(root, heightDp)
         }
 
@@ -410,6 +423,10 @@ class SecureInputMethodService : InputMethodService() {
             showingEmoji = true
             rebuildKeyboardView()
         })
+        bottomRow.addView(makeKey("🔒", weight = 1.2f, heightDp = heightDp) {
+            showingCrypto = true
+            rebuildKeyboardView()
+        })
         bottomRow.addView(deleteKey(heightDp))
         bottomRow.addView(enterKey(heightDp))
         root.addView(bottomRow)
@@ -469,6 +486,186 @@ class SecureInputMethodService : InputMethodService() {
         })
         bottomRow.addView(deleteKey(heightDp, weight = 2f))
         root.addView(bottomRow)
+    }
+
+    /**
+     * Quick-encrypt / quick-decrypt panel, entirely inside the
+     * keyboard's own view (no separate Activity/Dialog involved - see
+     * class doc addition above). Uses whatever passphrase is currently
+     * active in SessionKeyStore; that passphrase itself is only ever
+     * set from the full Encrypt screen (EncryptActivity), never typed
+     * here. All actual crypto goes through CryptoEngine - the exact
+     * same code path the full Encrypt screen uses, so anything produced
+     * here decrypts fine there and vice versa.
+     */
+    private fun buildCryptoPage(root: LinearLayout, heightDp: Int) {
+        val padding = dpToPx(8f)
+        val decrypted = cryptoDecryptedText
+
+        if (decrypted != null) {
+            // RESULT VIEW: show the plaintext for reading only. It is
+            // never written back into any field automatically - the
+            // whole point of decrypting here is to READ someone else's
+            // message, not to inject it anywhere.
+            val scroll = ScrollView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    dpToPx(heightDp * 2.6f)
+                )
+            }
+            val resultView = TextView(this).apply {
+                text = decrypted
+                setTextColor(Color.WHITE)
+                textSize = 15f
+                setPadding(padding, padding, padding, padding)
+                layoutDirection = View.LAYOUT_DIRECTION_RTL
+                textDirection = View.TEXT_DIRECTION_RTL
+            }
+            scroll.addView(resultView)
+            root.addView(scroll)
+
+            val closeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            closeRow.addView(makeKey(getString(R.string.crypto_panel_close_btn), weight = 2f, heightDp = heightDp, accented = true) {
+                cryptoDecryptedText = null
+                rebuildKeyboardView()
+            })
+            root.addView(closeRow)
+            return
+        }
+
+        val statusView = TextView(this).apply {
+            text = if (SessionKeyStore.isActive()) {
+                getString(R.string.session_key_active, SessionKeyStore.remainingMinutes())
+            } else {
+                getString(R.string.crypto_panel_no_session)
+            }
+            setTextColor(ThemeUtil.accentColor(this@SecureInputMethodService))
+            textSize = 13f
+            setPadding(padding, padding, padding, padding)
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            textDirection = View.TEXT_DIRECTION_RTL
+        }
+        root.addView(statusView)
+
+        val sessionActive = SessionKeyStore.isActive()
+
+        val encryptRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        encryptRow.addView(makeKey(getString(R.string.crypto_panel_encrypt_btn), weight = 1f, heightDp = heightDp, accented = sessionActive) {
+            encryptFieldAndInject()
+        })
+        root.addView(encryptRow)
+
+        val decryptRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        decryptRow.addView(makeKey(getString(R.string.crypto_panel_decrypt_btn), weight = 1f, heightDp = heightDp, accented = sessionActive) {
+            decryptClipboard()
+        })
+        root.addView(decryptRow)
+
+        val popupRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        popupRow.addView(makeKey(getString(R.string.crypto_panel_open_popup_btn), weight = 1f, heightDp = heightDp) {
+            val intent = Intent(this@SecureInputMethodService, EncryptActivity::class.java).apply {
+                putExtra(EncryptActivity.EXTRA_POPUP_MODE, true)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(intent)
+        })
+        root.addView(popupRow)
+
+        val popupDesc = TextView(this).apply {
+            text = getString(R.string.crypto_panel_popup_desc)
+            setTextColor(Color.parseColor("#94A3B8"))
+            textSize = 11f
+            setPadding(padding, 0, padding, padding)
+            layoutDirection = View.LAYOUT_DIRECTION_RTL
+            textDirection = View.TEXT_DIRECTION_RTL
+        }
+        root.addView(popupDesc)
+
+        val bottomRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val backLabel = if (letterMode == LetterMode.ARABIC) "ابجد" else "ABC"
+        bottomRow.addView(makeKey(backLabel, weight = 2f, heightDp = heightDp) {
+            showingCrypto = false
+            rebuildKeyboardView()
+        })
+        root.addView(bottomRow)
+    }
+
+    /**
+     * Reads the ENTIRE content of the currently focused field (not just
+     * text around the cursor - see ExtractedText below), encrypts it
+     * with the active session passphrase, and replaces the field's
+     * content with the ciphertext directly via the InputConnection. No
+     * expiry is attached here (that option only exists on the full
+     * Encrypt screen) and the plaintext never touches the clipboard.
+     */
+    private fun encryptFieldAndInject() {
+        val passphrase = SessionKeyStore.get()
+        if (passphrase == null) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_no_session, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val ic = currentInputConnection ?: return
+            val extracted = ic.getExtractedText(ExtractedTextRequest(), 0)
+            val fullText = extracted?.text?.toString().orEmpty()
+            if (fullText.isEmpty()) {
+                android.widget.Toast.makeText(this, R.string.crypto_panel_empty_field_toast, android.widget.Toast.LENGTH_SHORT).show()
+                return
+            }
+            val textChars = fullText.toCharArray()
+            val cipherText = try {
+                CryptoEngine.encrypt(textChars, passphrase, expirySeconds = null)
+            } finally {
+                java.util.Arrays.fill(textChars, ' ')
+            }
+            ic.setSelection(0, fullText.length)
+            ic.commitText(cipherText, 1)
+            // The field now holds ciphertext, not a word being typed.
+            currentWord.clear()
+            lastFinishedWord = null
+        } finally {
+            java.util.Arrays.fill(passphrase, ' ')
+        }
+    }
+
+    /**
+     * Reads the system clipboard, and - only if it looks like something
+     * this app itself produced (see CryptoEngine.looksLikeCiphertext) -
+     * attempts to decrypt it with the active session passphrase. Shows
+     * the result inline in this same page (see cryptoDecryptedText
+     * above); never writes the decrypted text into any field, clipboard,
+     * or file.
+     */
+    private fun decryptClipboard() {
+        val passphrase = SessionKeyStore.get()
+        if (passphrase == null) {
+            android.widget.Toast.makeText(this, R.string.crypto_panel_no_session, android.widget.Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val cm = getSystemService(CLIPBOARD_SERVICE) as? ClipboardManager
+            val clip = cm?.primaryClip
+            val clipText = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).text?.toString() else null
+            if (clipText.isNullOrBlank() || !CryptoEngine.looksLikeCiphertext(clipText)) {
+                android.widget.Toast.makeText(this, R.string.crypto_panel_no_ciphertext_toast, android.widget.Toast.LENGTH_SHORT).show()
+                return
+            }
+            try {
+                val plainChars = CryptoEngine.decrypt(clipText, passphrase)
+                try {
+                    cryptoDecryptedText = String(plainChars)
+                } finally {
+                    java.util.Arrays.fill(plainChars, ' ')
+                }
+                rebuildKeyboardView()
+            } catch (e: CryptoEngine.ExpiredMessageException) {
+                android.widget.Toast.makeText(this, R.string.crypto_panel_expired_toast, android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(this, R.string.crypto_panel_decrypt_failed_toast, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        } finally {
+            java.util.Arrays.fill(passphrase, ' ')
+        }
     }
 
     /**
@@ -855,9 +1052,11 @@ class SecureInputMethodService : InputMethodService() {
         // The AR/EN letter choice itself (letterMode) is left as-is,
         // same as a real keyboard remembering the language you were
         // just using.
-        val cameFromOverlay = showingSymbols || showingEmoji
+        val cameFromOverlay = showingSymbols || showingEmoji || showingCrypto
         showingSymbols = false
         showingEmoji = false
+        showingCrypto = false
+        cryptoDecryptedText = null
 
         // Suggestions are opt-OUT per field, driven entirely by what the
         // app being typed into declares - never by anything this keyboard
@@ -920,6 +1119,8 @@ class SecureInputMethodService : InputMethodService() {
         // than let it linger in memory for a session that's now over.
         currentWord.clear()
         lastFinishedWord = null
+        cryptoDecryptedText = null
+        showingCrypto = false
         updateSuggestions()
         // Cancel any in-flight long-press/tatweel-repeat timer so it
         // can't fire against a key view that's about to be torn down.

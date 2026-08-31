@@ -9,7 +9,6 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PersistableBundle
 import android.text.Editable
-import android.util.Base64
 import android.view.View
 import android.view.WindowManager
 import android.widget.AdapterView
@@ -21,17 +20,9 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.button.MaterialButton
-import org.bouncycastle.crypto.generators.Argon2BytesGenerator
-import org.bouncycastle.crypto.params.Argon2Parameters
 import java.io.File
-import java.nio.ByteBuffer
-import java.nio.CharBuffer
 import java.security.SecureRandom
 import java.util.Arrays
-import javax.crypto.AEADBadTagException
-import javax.crypto.Cipher
-import javax.crypto.spec.GCMParameterSpec
-import javax.crypto.spec.SecretKeySpec
 
 /**
  * EncryptActivity
@@ -73,22 +64,6 @@ import javax.crypto.spec.SecretKeySpec
  */
 class EncryptActivity : AppCompatActivity() {
 
-    private val ivLength = 12
-    private val saltLength = 16
-    private val headerLength = 10 // 1 (version) + 1 (hasExpiry) + 8 (expiry epoch seconds)
-    private val formatVersion: Byte = 2
-
-    // Argon2id parameters. These control memory (KB), iterations (time
-    // cost) and parallelism - all three make brute-forcing expensive in
-    // a different way than a single PBKDF2 "iteration count" number.
-    // 64 MB / 3 passes / 1 lane is a commonly recommended mobile-friendly
-    // baseline (OWASP's Argon2id guidance) that still runs in well under
-    // a second on modern phone hardware.
-    private val argonMemoryKb = 65536 // 64 MB
-    private val argonIterations = 3
-    private val argonParallelism = 1
-    private val keyLengthBytes = 32 // AES-256
-
     private lateinit var inputText: EditText
     private lateinit var inputKey: EditText
     private lateinit var spinnerExpiry: Spinner
@@ -98,20 +73,36 @@ class EncryptActivity : AppCompatActivity() {
     private lateinit var resultText: TextView
     private lateinit var keyStrengthHint: TextView
     private lateinit var rootWarningText: TextView
+    private lateinit var sessionKeyStatus: TextView
 
     private val clipboardHandler = Handler(Looper.getMainLooper())
     private var clipboardClearRunnable: Runnable? = null
     private var lastCopiedValue: String? = null
 
-    private class ExpiredMessageException : Exception()
-
     companion object {
         private const val CLIPBOARD_CLEAR_DELAY_MS = 30_000L
         private const val CUSTOM_EXPIRY_POSITION = 5
+
+        // When true, this Activity is opened FROM the keyboard's own
+        // crypto panel (see SecureInputMethodService.buildCryptoPage) as
+        // a genuine floating popup (see AppTheme.PopupCompose in
+        // styles.xml) instead of a full-screen page, so composing a
+        // sensitive message never has to happen inside WhatsApp's (or
+        // any other app's) own text field at all - only the final
+        // CIPHERTEXT ever leaves this popup, via the existing "copy
+        // result" button, to be pasted back manually. See the class doc
+        // above for why full auto-injection isn't possible once a
+        // separate Activity like this one takes over the screen.
+        const val EXTRA_POPUP_MODE = "popup_mode"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        val popupMode = intent?.getBooleanExtra(EXTRA_POPUP_MODE, false) == true
+        if (popupMode) {
+            setTheme(R.style.AppTheme_PopupCompose)
+        }
 
         window.setFlags(
             WindowManager.LayoutParams.FLAG_SECURE,
@@ -129,6 +120,7 @@ class EncryptActivity : AppCompatActivity() {
         resultText = findViewById(R.id.resultText)
         keyStrengthHint = findViewById(R.id.keyStrengthHint)
         rootWarningText = findViewById(R.id.rootWarningText)
+        sessionKeyStatus = findViewById(R.id.sessionKeyStatus)
 
         if (RootCheck.looksRooted()) {
             rootWarningText.text = getString(R.string.warn_root_detected)
@@ -183,7 +175,7 @@ class EncryptActivity : AppCompatActivity() {
                 }
                 try {
                     val expirySeconds = selectedExpirySeconds()
-                    showResult(encrypt(textChars, passChars, expirySeconds))
+                    showResult(CryptoEngine.encrypt(textChars, passChars, expirySeconds))
                     // The plaintext no longer needs to stay in the input
                     // field once it's been encrypted - clearing it here
                     // reduces how long it sits visible/in memory.
@@ -211,13 +203,13 @@ class EncryptActivity : AppCompatActivity() {
                     // decrypt() now returns the sensitive plaintext as a
                     // CharArray (see fix note on the function itself)
                     // instead of an unwipeable String.
-                    val plainChars = decrypt(cipherB64, passChars)
+                    val plainChars = CryptoEngine.decrypt(cipherB64, passChars)
                     try {
                         showResult(plainChars)
                     } finally {
                         clearChars(plainChars)
                     }
-                } catch (e: ExpiredMessageException) {
+                } catch (e: CryptoEngine.ExpiredMessageException) {
                     showError(getString(R.string.err_expired))
                 } catch (e: Exception) {
                     showError(getString(R.string.err_bad_key))
@@ -246,6 +238,42 @@ class EncryptActivity : AppCompatActivity() {
             errorText.setTextColor(ThemeUtil.accentColor(this))
         }
 
+        findViewById<MaterialButton>(R.id.btnUseAsSessionKey).setOnClickListener {
+            hideError()
+            if (SessionKeyStore.isActive()) {
+                // Toggle: a second tap while active clears it early -
+                // no separate "clear" button needed for this one action.
+                SessionKeyStore.clear()
+                Toast.makeText(this, R.string.session_key_cleared_toast, Toast.LENGTH_SHORT).show()
+                updateSessionKeyStatus()
+            } else {
+                val passChars = editableToCharArray(inputKey.text)
+                try {
+                    if (passChars.isEmpty()) {
+                        showError(getString(R.string.err_no_key))
+                        return@setOnClickListener
+                    }
+                    val bits = KeyStrength.estimateEntropyBits(passChars)
+                    if (bits < KeyStrength.MIN_ENTROPY_BITS) {
+                        showError(getString(R.string.err_weak_key, bits.toInt(), KeyStrength.MIN_ENTROPY_BITS.toInt()))
+                        return@setOnClickListener
+                    }
+                    // SessionKeyStore keeps its own copy (see its class
+                    // doc) - passChars here is still cleared below same
+                    // as everywhere else this field is read.
+                    SessionKeyStore.set(passChars)
+                    Toast.makeText(
+                        this,
+                        getString(R.string.session_key_set_toast, SessionKeyStore.remainingMinutes()),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    updateSessionKeyStatus()
+                } finally {
+                    clearChars(passChars)
+                }
+            }
+        }
+
         findViewById<MaterialButton>(R.id.btnCopyResult).setOnClickListener {
             copyResultToClipboard(resultText.text.toString())
         }
@@ -268,6 +296,31 @@ class EncryptActivity : AppCompatActivity() {
         ThemeUtil.tintOutline(this, findViewById(R.id.btnGenerateKey))
         ThemeUtil.tintOutline(this, findViewById(R.id.btnCopyResult))
         ThemeUtil.tintOutline(this, findViewById(R.id.btnClearAll))
+        ThemeUtil.tintOutline(this, findViewById(R.id.btnUseAsSessionKey))
+        updateSessionKeyStatus()
+
+        // Popup mode's whole point is fast, frictionless composing - if
+        // a session passphrase is already active, prefill it (same
+        // masked password field, nothing shown in the clear) so the user
+        // only has to type the MESSAGE, not the key, every time.
+        if (popupMode) {
+            SessionKeyStore.get()?.let { chars ->
+                try {
+                    inputKey.setText(String(chars))
+                } finally {
+                    Arrays.fill(chars, ' ')
+                }
+            }
+            inputText.requestFocus()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The remaining-time text (and whether the session is still
+        // active at all) can go stale while this screen isn't visible -
+        // refresh it every time the user comes back to it.
+        updateSessionKeyStatus()
     }
 
     /** Reads the expiry Spinner (+ optional custom-minutes field) into a duration in seconds, or null for "never". */
@@ -296,6 +349,14 @@ class EncryptActivity : AppCompatActivity() {
 
     private fun clearChars(chars: CharArray) {
         Arrays.fill(chars, '\u0000')
+    }
+
+    private fun updateSessionKeyStatus() {
+        sessionKeyStatus.text = if (SessionKeyStore.isActive()) {
+            getString(R.string.session_key_active, SessionKeyStore.remainingMinutes())
+        } else {
+            getString(R.string.session_key_inactive)
+        }
     }
 
     private fun showError(msg: String) {
@@ -393,142 +454,6 @@ class EncryptActivity : AppCompatActivity() {
      * char[]/byte[] copies of the password and key sitting in the heap
      * until GC gets to them.
      */
-    private fun deriveKey(passChars: CharArray, salt: ByteArray): ByteArray {
-        val passBytes = charsToUtf8Bytes(passChars)
-        try {
-            val params = Argon2Parameters.Builder(Argon2Parameters.ARGON2_id)
-                .withVersion(Argon2Parameters.ARGON2_VERSION_13)
-                .withIterations(argonIterations)
-                .withMemoryAsKB(argonMemoryKb)
-                .withParallelism(argonParallelism)
-                .withSalt(salt)
-                .build()
-            val generator = Argon2BytesGenerator()
-            generator.init(params)
-            val keyBytes = ByteArray(keyLengthBytes)
-            generator.generateBytes(passBytes, keyBytes)
-            return keyBytes
-        } finally {
-            Arrays.fill(passBytes, 0)
-        }
-    }
-
-    /**
-     * Encodes a CharArray as UTF-8 bytes WITHOUT ever allocating an
-     * intermediate String (String.toByteArray() would create one, and
-     * Strings can't be wiped from memory).
-     */
-    private fun charsToUtf8Bytes(chars: CharArray): ByteArray {
-        val byteBuffer = Charsets.UTF_8.encode(CharBuffer.wrap(chars))
-        val bytes = ByteArray(byteBuffer.remaining())
-        byteBuffer.get(bytes)
-        if (byteBuffer.hasArray()) {
-            Arrays.fill(byteBuffer.array(), 0)
-        }
-        return bytes
-    }
-
-    /**
-     * Builds the (cleartext, but authenticated) header: format version +
-     * whether an expiry is set + the absolute expiry time (Unix epoch
-     * seconds, 0 if none). This header is passed to AES-GCM as
-     * "additional authenticated data" (AAD): it is NOT encrypted (it
-     * doesn't need to be secret - only the message content does), but
-     * it IS covered by the GCM authentication tag, so if anyone edits
-     * the expiry timestamp in the Base64 blob to try to bypass the
-     * check, decryption fails outright instead of silently accepting
-     * the tampered value.
-     */
-    private fun buildHeader(hasExpiry: Boolean, expiryEpochSeconds: Long): ByteArray {
-        val buffer = ByteBuffer.allocate(headerLength)
-        buffer.put(formatVersion)
-        buffer.put(if (hasExpiry) 1.toByte() else 0.toByte())
-        buffer.putLong(expiryEpochSeconds)
-        return buffer.array()
-    }
-
-    private fun encrypt(textChars: CharArray, passChars: CharArray, expirySeconds: Long?): String {
-        val salt = ByteArray(saltLength).also { SecureRandom().nextBytes(it) }
-        val iv = ByteArray(ivLength).also { SecureRandom().nextBytes(it) }
-        val keyBytes = deriveKey(passChars, salt)
-        // FIX: this used to be text.toByteArray(Charsets.UTF_8) - a
-        // temporary buffer that was left for the garbage collector
-        // instead of being explicitly zeroed, unlike keyBytes below.
-        // charsToUtf8Bytes() also avoids ever creating a String out of
-        // the plaintext in the first place.
-        val plainBytes = charsToUtf8Bytes(textChars)
-        try {
-            val hasExpiry = expirySeconds != null
-            val expiryEpoch = if (hasExpiry) (System.currentTimeMillis() / 1000L) + expirySeconds!! else 0L
-            val header = buildHeader(hasExpiry, expiryEpoch)
-
-            val key = SecretKeySpec(keyBytes, "AES")
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(128, iv))
-            cipher.updateAAD(header)
-            val cipherBytes = cipher.doFinal(plainBytes)
-
-            val combined = header + salt + iv + cipherBytes
-            return Base64.encodeToString(combined, Base64.NO_WRAP)
-        } finally {
-            Arrays.fill(keyBytes, 0)
-            Arrays.fill(plainBytes, 0)
-        }
-    }
-
-    /**
-     * FIX: this used to return String (the decrypted plaintext - the most
-     * sensitive value in the whole app, arguably more sensitive than the
-     * key itself since it's the actual secret being protected). A String
-     * can never be wiped from memory in the JVM/ART, exactly the problem
-     * already solved for the passphrase elsewhere in this file. Now
-     * returns a CharArray so the caller can zero it immediately after
-     * displaying it (see the btnDecryptAction handler).
-     */
-    private fun decrypt(b64: String, passChars: CharArray): CharArray {
-        val combined = Base64.decode(b64, Base64.NO_WRAP)
-        require(combined.size > headerLength + saltLength + ivLength) { "ciphertext too short" }
-
-        val header = combined.copyOfRange(0, headerLength)
-        val headerBuf = ByteBuffer.wrap(header)
-        headerBuf.get() // version - not currently branched on, reserved for future format changes
-        val hasExpiry = headerBuf.get().toInt() == 1
-        val expiryEpoch = headerBuf.long
-
-        // Checked BEFORE spending time on the (deliberately expensive)
-        // Argon2id key derivation below, so an expired message fails
-        // fast without doing the costly work first.
-        if (hasExpiry && System.currentTimeMillis() / 1000L > expiryEpoch) {
-            throw ExpiredMessageException()
-        }
-
-        val salt = combined.copyOfRange(headerLength, headerLength + saltLength)
-        val iv = combined.copyOfRange(headerLength + saltLength, headerLength + saltLength + ivLength)
-        val cipherBytes = combined.copyOfRange(headerLength + saltLength + ivLength, combined.size)
-        val keyBytes = deriveKey(passChars, salt)
-        try {
-            val key = SecretKeySpec(keyBytes, "AES")
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, iv))
-            cipher.updateAAD(header)
-            val plainBytes = cipher.doFinal(cipherBytes)
-            try {
-                val charBuffer = Charsets.UTF_8.decode(java.nio.ByteBuffer.wrap(plainBytes))
-                val chars = CharArray(charBuffer.remaining())
-                charBuffer.get(chars)
-                return chars
-            } finally {
-                Arrays.fill(plainBytes, 0)
-            }
-        } catch (e: AEADBadTagException) {
-            // Wrong key OR a tampered header/ciphertext - GCM
-            // deliberately can't tell you which, that's by design.
-            throw e
-        } finally {
-            Arrays.fill(keyBytes, 0)
-        }
-    }
-
     override fun onPause() {
         super.onPause()
         // FIX (reported bug): text used to only get cleared in onDestroy,
