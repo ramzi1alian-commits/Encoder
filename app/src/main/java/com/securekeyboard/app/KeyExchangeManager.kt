@@ -162,7 +162,21 @@ object KeyExchangeManager {
         return try {
             ensureIdentityExists(context)
             prefs(context).getString(KEY_MY_PUBLIC, "") ?: ""
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
+            // FIX (second round - reported bug persisted after the first
+            // fix): "catch (_: Exception)" does NOT catch Error subclasses
+            // like NoClassDefFoundError/UnsatisfiedLinkError - which is
+            // exactly what happens if the org.bouncycastle classes this
+            // whole X25519 path depends on aren't actually present/loadable
+            // in the installed build (e.g. a local build environment issue,
+            // not something visible from source review alone). This call
+            // runs UNCONDITIONALLY the instant EncryptActivity opens (via
+            // setUpKeyExchangeUi -> refreshMyPublicKeyDisplay), before any
+            // button press - so an uncaught Error here crashes the screen
+            // immediately on open, matching "يخرج بمجرد الضغط على فتح
+            // اداة التشفير" exactly. Widening to Throwable means ANY
+            // failure here - Exception or Error - degrades to "no key
+            // available" instead of taking the screen down.
             ""
         }
     }
@@ -184,7 +198,7 @@ object KeyExchangeManager {
         val trimmed = base64.trim()
         val decoded = try {
             Base64.decode(trimmed, Base64.NO_WRAP)
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
             return false
         }
         if (decoded.size != X25519_KEY_LENGTH) return false
@@ -221,7 +235,11 @@ object KeyExchangeManager {
         if (base64PublicKey.isNullOrBlank()) return null
         val decoded = try {
             Base64.decode(base64PublicKey.trim(), Base64.NO_WRAP)
-        } catch (_: Exception) {
+        } catch (_: Throwable) {
+            // Widened for the same reason as myPublicKeyBase64() above -
+            // this also runs unconditionally on EncryptActivity open (via
+            // refreshMyPublicKeyDisplay/refreshPeerKeyStatus), so it needs
+            // the same Error-inclusive safety net.
             return null
         }
         if (decoded.size != X25519_KEY_LENGTH) return null
