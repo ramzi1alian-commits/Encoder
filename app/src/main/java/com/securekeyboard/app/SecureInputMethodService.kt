@@ -866,6 +866,20 @@ class SecureInputMethodService : InputMethodService() {
                 java.util.Arrays.fill(textChars, ' ')
             }
             injectCipherTextReplacingField(cipherText, fullText.length)
+            // FIX (reported bug): committing the ciphertext back into the
+            // target field via setSelection()+commitText() can make the
+            // host app/framework call onStartInputView(restarting=true)
+            // again, which unconditionally resets showingCrypto = false
+            // (see onStartInputView below) and silently dropped the user
+            // onto the ordinary, non-secure letters page right after they
+            // pressed "تشفير". Same fix already applied to
+            // decryptWithPassphraseAndShow/decryptWithKeyExchangeAndShow
+            // and sendSecureCompose - re-assert the secure panel and
+            // rebuild immediately after the field write, so the crypto
+            // page (with its own تشفير/فك التشفير buttons) stays on
+            // screen until the user explicitly leaves it (e.g. "ابجد").
+            showingCrypto = true
+            rebuildKeyboardView()
         } finally {
             java.util.Arrays.fill(passphrase, ' ')
         }
@@ -895,6 +909,9 @@ class SecureInputMethodService : InputMethodService() {
                 java.util.Arrays.fill(textChars, ' ')
             }
             injectCipherTextReplacingField(cipherText, fullText.length)
+            // Same fix as encryptFieldAndInjectWithPassphrase() above.
+            showingCrypto = true
+            rebuildKeyboardView()
         } finally {
             java.util.Arrays.fill(sharedKey, 0)
         }
